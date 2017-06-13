@@ -18,10 +18,10 @@
     <ClCompile Include="OpenScan.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\..\..\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.c">
+    <ClCompile Include="Waveform.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Waveform.cpp">
+    <ClCompile Include="C:\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -29,13 +29,13 @@
     <ClInclude Include="OpenScan.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\..\..\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="NiFpga_OpenScanFPGAHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Waveform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

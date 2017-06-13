@@ -167,12 +167,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\..\..\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.c" />
+    <ClCompile Include="C:\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.c" />
     <ClCompile Include="OpenScan.cpp" />
     <ClCompile Include="Waveform.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\..\..\..\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.h" />
+    <ClInclude Include="C:\Program Files (x86)\National Instruments\FPGA Interface C API\NiFpga.h" />
     <ClInclude Include="NiFpga_OpenScanFPGAHost.h" />
     <ClInclude Include="OpenScan.h" />
     <ClInclude Include="Waveform.h" />

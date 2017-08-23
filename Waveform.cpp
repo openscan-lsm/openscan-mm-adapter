@@ -23,21 +23,21 @@ GenerateScaledWaveforms(uint32_t resolution, double zoom, uint16_t *xScaled, uin
 	size_t yLength = resolution;
 
 	/*
-	Right now the galvoOffset is in fractions of the FoV.  Eventually we will want it to be in
+	Right now the galvoOffset is in fractions of the Zoom 1 FoV.  Eventually we will want it to be in
 	angle, so we can scale it properly.  These two variables will replace galvoOffset in the
 	GenerateGalvoWaveform call once we figure out the proper scaling.  Otherwise we can modify
-	the input galvoOffset to be in fractions
+	the input galvoOffset to be in fractions*/
 
-	scaledOffsetX;
-	scaledOffsetY;
-	*/
+	double scaledOffsetX = galvoOffsetX * zoom;
+	double scaledOffsetY = galvoOffsetY * zoom;
+	
 
 	double *xWaveform = (double *)malloc(sizeof(double) * xLength);
 	double *yWaveform = (double *)malloc(sizeof(double) * yLength);
 	GenerateGalvoWaveform(resolution, X_RETRACE_LEN, X_UNDERSHOOT,
-		-0.5 + galvoOffsetX, 0.5 + galvoOffsetX, xWaveform);
+		-0.5 + scaledOffsetX, 0.5 + scaledOffsetX, xWaveform);
 	GenerateGalvoWaveform(resolution, 0, 0, 
-		-0.5 + galvoOffsetY, 0.5 + galvoOffsetY, yWaveform);
+		-0.5 + scaledOffsetY, 0.5 + scaledOffsetY, yWaveform);
 
 	for (int i = 0; i < xLength; ++i) {
 		if (VoltsToDACUnits(xWaveform[i], zoom, &(xScaled[i])) != 0)

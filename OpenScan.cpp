@@ -8,6 +8,8 @@ const char* const DEVICE_NAME_Camera = "OpenScan";
 const char* const PROPERTY_NAME_ScanRate = "ScanRate";
 const char* const PROPERTY_NAME_Resolution = "Resolution";
 const char* const PROPERTY_NAME_Zoom = "Zoom";
+const char* const PROPERTY_NAME_GalvoOffsetX = "GalvoOffsetX";
+const char* const PROPERTY_NAME_GalvoOffsetY = "GalvoOffsetY";
 const char* const PROPERTY_NAME_Channels = "Channels";
 const char* const PROPERTY_VALUE_RawImage = "RawImage";
 const char* const PROPERTY_VALUE_KalmanAveraged = "KalmanAveraged";
@@ -79,6 +81,8 @@ OpenScan::OpenScan() :
 	scanRate_(0.2),
 	resolution_(512),
 	zoom_(1.5),
+	galvoOffsetX_(0),
+	galvoOffsetY_(0),
 	channels_(CHANNELS_RAW_IMAGE),
 	kalmanProgressive_(false),
 	kalmanFrames_(1),
@@ -148,6 +152,24 @@ OpenScan::Initialize()
 	if (err != DEVICE_OK)
 		return err;
 	err = SetPropertyLimits(PROPERTY_NAME_Zoom, 0.5, 10.0);
+	if (err != DEVICE_OK)
+		return err;
+
+	/*The galvoOffsetX and galvoOffsetY variables are expressed in fractions of the FOV.
+	todo: modify so that they are a real quantity, such as galvo angle*/
+	err = CreateFloatProperty(PROPERTY_NAME_GalvoOffsetX, galvoOffsetX_, false,
+		new CPropertyAction(this, &OpenScan::OnGalvoOffsetX));
+	if (err!= DEVICE_OK)
+		return err;
+	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetX, -1.0, 1.0);
+	if (err != DEVICE_OK)
+		return err;
+
+	err = CreateFloatProperty(PROPERTY_NAME_GalvoOffsetY, galvoOffsetY_, false,
+		new CPropertyAction(this, &OpenScan::OnGalvoOffsetY));
+	if (err != DEVICE_OK)
+		return err;
+	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetY, -1.0, 1.0);
 	if (err != DEVICE_OK)
 		return err;
 
@@ -688,6 +710,43 @@ OpenScan::OnZoom(MM::PropertyBase* pProp, MM::ActionType eAct)
 	return DEVICE_OK;
 }
 
+int
+OpenScan::OnGalvoOffsetX(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		pProp->Set(galvoOffsetX_);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		if (IsCapturing())
+			return DEVICE_CAMERA_BUSY_ACQUIRING;
+		double v;
+		pProp->Get(v);
+		galvoOffsetX_ = v;
+		settingsChanged_ = true;
+	}
+	return DEVICE_OK;
+}
+
+int
+OpenScan::OnGalvoOffsetY(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		pProp->Set(galvoOffsetY_);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		if (IsCapturing())
+			return DEVICE_CAMERA_BUSY_ACQUIRING;
+		double v;
+		pProp->Get(v);
+		galvoOffsetY_ = v;
+		settingsChanged_ = true;
+	}
+	return DEVICE_OK;
+}
 
 int
 OpenScan::OnChannels(MM::PropertyBase* pProp, MM::ActionType eAct)
@@ -1076,7 +1135,8 @@ OpenScan::WriteWaveforms(uint16_t *firstX, uint16_t *firstY)
 	uint16_t *xScaled = (uint16_t *)malloc(sizeof(uint16_t) * elementsPerLine);
 	uint16_t *yScaled = (uint16_t *)malloc(sizeof(uint16_t) * resolution_);
 
-	int err = GenerateScaledWaveforms(resolution_, zoom_, xScaled, yScaled);
+	int err = GenerateScaledWaveforms(resolution_, zoom_, xScaled, yScaled,
+		galvoOffsetX_, galvoOffsetY_);
 	if (err != 0)
 		return ERR_WAVEFORM_OUT_OF_RANGE;
 

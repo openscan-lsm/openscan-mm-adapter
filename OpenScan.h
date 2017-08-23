@@ -58,6 +58,9 @@ private: // Property handlers
 	int OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct);
 	int OnZoom(MM::PropertyBase* pProp, MM::ActionType eAct);
 
+	int OnGalvoOffsetY(MM::PropertyBase* pProp, MM::ActionType eAct);
+	int OnGalvoOffsetX(MM::PropertyBase* pProp, MM::ActionType eAct);
+
 	int OnChannels(MM::PropertyBase* pProp, MM::ActionType eAct);
 
 	int OnKalmanProgressive(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -100,6 +103,9 @@ private:
 	double scanRate_;
 	uint32_t resolution_;
 	double zoom_;
+
+	double galvoOffsetX_;
+	double galvoOffsetY_;
 
 	enum {
 		CHANNELS_RAW_IMAGE,

@@ -5,9 +5,15 @@
 
 
 inline int
-VoltsToDACUnits(double p, double zoom, uint16_t *result)
+VoltsToDACUnits(double p, double zoom, double galvoOffset, uint16_t *result)
 {
-	double scaled = round(p / zoom * 3276.8 + 32768.0);
+	/*The DAC units run from -10V to 10V, pk-pk 60 optical degrees.  
+	0V is at 32768.0.  
+	3276.8 = 1V 
+	0.33 V per optical degree 
+	*/
+
+	double scaled = round(p / zoom * 3276.8 + 32768.0 + (galvoOffset/3)*3276.8);
 	if (scaled < 0 || scaled > UINT16_MAX)
 		return -1;
 	*result = (uint16_t)scaled;
@@ -21,30 +27,19 @@ GenerateScaledWaveforms(uint32_t resolution, double zoom, uint16_t *xScaled, uin
 {
 	size_t xLength = X_UNDERSHOOT + resolution + X_RETRACE_LEN;
 	size_t yLength = resolution;
-
-	/*
-	Right now the galvoOffset is in fractions of the Zoom 1 FoV.  Eventually we will want it to be in
-	angle, so we can scale it properly.  These two variables will replace galvoOffset in the
-	GenerateGalvoWaveform call once we figure out the proper scaling.  Otherwise we can modify
-	the input galvoOffset to be in fractions*/
-
-	double scaledOffsetX = galvoOffsetX * zoom;
-	double scaledOffsetY = galvoOffsetY * zoom;
 	
-
 	double *xWaveform = (double *)malloc(sizeof(double) * xLength);
 	double *yWaveform = (double *)malloc(sizeof(double) * yLength);
-	GenerateGalvoWaveform(resolution, X_RETRACE_LEN, X_UNDERSHOOT,
-		-0.5 + scaledOffsetX, 0.5 + scaledOffsetX, xWaveform);
-	GenerateGalvoWaveform(resolution, 0, 0, 
-		-0.5 + scaledOffsetY, 0.5 + scaledOffsetY, yWaveform);
+
+	GenerateGalvoWaveform(resolution, X_RETRACE_LEN, X_UNDERSHOOT, -0.5, 0.5, xWaveform);
+	GenerateGalvoWaveform(resolution, 0, 0, -0.5, 0.5, yWaveform);
 
 	for (int i = 0; i < xLength; ++i) {
-		if (VoltsToDACUnits(xWaveform[i], zoom, &(xScaled[i])) != 0)
+		if (VoltsToDACUnits(xWaveform[i], zoom, galvoOffsetX, &(xScaled[i])) != 0)
 			return -1;
 	}
 	for (int j = 0; j < yLength; ++j) {
-		if (VoltsToDACUnits(yWaveform[j], zoom, &(yScaled[j])) != 0)
+		if (VoltsToDACUnits(yWaveform[j], zoom, galvoOffsetY, &(yScaled[j])) != 0)
 			return -1;
 	}
 

@@ -155,13 +155,14 @@ OpenScan::Initialize()
 	if (err != DEVICE_OK)
 		return err;
 
-	/*The galvoOffsetX and galvoOffsetY variables are expressed in fractions of the FOV.
-	todo: modify so that they are a real quantity, such as galvo angle*/
+	/*The galvoOffsetX and galvoOffsetY variables are expressed  in optical degrees
+	This is a rough correspondence - it likely needs to be calibrated to the actual
+	sensitivity of the galvos*/
 	err = CreateFloatProperty(PROPERTY_NAME_GalvoOffsetX, galvoOffsetX_, false,
 		new CPropertyAction(this, &OpenScan::OnGalvoOffsetX));
 	if (err!= DEVICE_OK)
 		return err;
-	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetX, -1.0, 1.0);
+	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetX, -10.0, 10.0);
 	if (err != DEVICE_OK)
 		return err;
 
@@ -169,7 +170,7 @@ OpenScan::Initialize()
 		new CPropertyAction(this, &OpenScan::OnGalvoOffsetY));
 	if (err != DEVICE_OK)
 		return err;
-	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetY, -1.0, 1.0);
+	err = SetPropertyLimits(PROPERTY_NAME_GalvoOffsetY, -10.0, 10.0);
 	if (err != DEVICE_OK)
 		return err;
 

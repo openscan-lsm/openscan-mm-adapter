@@ -80,7 +80,7 @@ OpenScan::OpenScan() :
 	settingsChanged_(true),
 	scanRate_(0.2),
 	resolution_(512),
-	zoom_(1.5),
+	zoom_(6.0),
 	galvoOffsetX_(0),
 	galvoOffsetY_(0),
 	channels_(CHANNELS_RAW_IMAGE),
@@ -151,7 +151,7 @@ OpenScan::Initialize()
 		new CPropertyAction(this, &OpenScan::OnZoom));
 	if (err != DEVICE_OK)
 		return err;
-	err = SetPropertyLimits(PROPERTY_NAME_Zoom, 0.5, 10.0);
+	err = SetPropertyLimits(PROPERTY_NAME_Zoom, 1.0, 40.0);
 	if (err != DEVICE_OK)
 		return err;
 
@@ -1136,7 +1136,7 @@ OpenScan::WriteWaveforms(uint16_t *firstX, uint16_t *firstY)
 	uint16_t *xScaled = (uint16_t *)malloc(sizeof(uint16_t) * elementsPerLine);
 	uint16_t *yScaled = (uint16_t *)malloc(sizeof(uint16_t) * resolution_);
 
-	int err = GenerateScaledWaveforms(resolution_, zoom_, xScaled, yScaled,
+	int err = GenerateScaledWaveforms(resolution_, 0.25 * zoom_, xScaled, yScaled,
 		galvoOffsetX_, galvoOffsetY_);
 	if (err != 0)
 		return ERR_WAVEFORM_OUT_OF_RANGE;

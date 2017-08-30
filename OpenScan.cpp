@@ -80,7 +80,7 @@ OpenScan::OpenScan() :
 	settingsChanged_(true),
 	scanRate_(0.2),
 	resolution_(512),
-	zoom_(6.0),
+	zoom_(1.0),
 	galvoOffsetX_(0),
 	galvoOffsetY_(0),
 	channels_(CHANNELS_RAW_IMAGE),
@@ -151,7 +151,7 @@ OpenScan::Initialize()
 		new CPropertyAction(this, &OpenScan::OnZoom));
 	if (err != DEVICE_OK)
 		return err;
-	err = SetPropertyLimits(PROPERTY_NAME_Zoom, 1.0, 40.0);
+	err = SetPropertyLimits(PROPERTY_NAME_Zoom, 0.50, 40.0);
 	if (err != DEVICE_OK)
 		return err;
 

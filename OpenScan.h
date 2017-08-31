@@ -92,6 +92,7 @@ private: // Internal functions
 	int SendSequenceImages(bool stopOnOverflow);
 	int SendSequenceImage(bool stopOnOverflow, int chan, const unsigned char* pixels);
 	int StopSequenceAcquisitionImpl(bool wait);
+	void NotifySequenceFinish();
 
 private:
 	NiFpga_Session fpgaSession_;

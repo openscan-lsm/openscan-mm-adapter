@@ -537,6 +537,9 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 	stopSequenceRequested_ = false;
 	sequenceThread_ = new SequenceThread(this,
 		count, kalmanFrames_, stopOnOverflow);
+
+	GetCoreCallback()->PrepareForAcq(this);
+
 	sequenceThread_->Start();
 	return DEVICE_OK;
 }
@@ -574,6 +577,13 @@ OpenScan::StopSequenceAcquisitionImpl(bool wait)
 	}
 
 	return err;
+}
+
+
+void
+OpenScan::NotifySequenceFinish()
+{
+	GetCoreCallback()->AcqFinished(this, DEVICE_OK);
 }
 
 
@@ -1453,11 +1463,13 @@ SequenceThread::svc()
 			return 0;
 		}
 
-		NiFpga_Status stat = NiFpga_WriteI32(camera_->fpgaSession_,
+		stat = NiFpga_WriteI32(camera_->fpgaSession_,
 			NiFpga_OpenScanFPGAHost_ControlI32_Framenumber, frame + 1);
 		if (NiFpga_IsError(stat))
 			return stat;
 	}
+
+	camera_->NotifySequenceFinish();
 
 	camera_->StopSequenceAcquisitionImpl(false);
 	return 0;

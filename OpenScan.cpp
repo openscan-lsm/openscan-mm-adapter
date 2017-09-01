@@ -128,7 +128,7 @@ OpenScan::Initialize()
 		scannerDevice = scannerDevices_.at(scannerName);
 		detectorDevice = detectorDevices_.at(detectorName);
 	}
-	catch (const std::exception &)
+	catch (const std::exception&)
 	{
 		return ERR_SCANNER_AND_DETECTOR_REQUIRED;
 	}
@@ -138,12 +138,9 @@ OpenScan::Initialize()
 	err = OSc_Device_Open(scannerDevice, oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
-	if (detectorDevice != scannerDevice)
-	{
-		err = OSc_Device_Open(detectorDevice, oscLSM_);
-		if (err != OSc_Error_OK)
-			return err;
-	}
+	err = OSc_Device_Open(detectorDevice, oscLSM_);
+	if (err != OSc_Error_OK)
+		return err;
 
 	OSc_Scanner* scanner;
 	err = OSc_Device_Get_Scanner(scannerDevice, &scanner);
@@ -478,5 +475,5 @@ OpenScan::IsCapturing()
 	OSc_Error err = OSc_LSM_Is_Running_Acquisition(oscLSM_, &isRunning);
 	if (err != OSc_Error_OK)
 		return false;
-	return true;
+	return isRunning;
 }

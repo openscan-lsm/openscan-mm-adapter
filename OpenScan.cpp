@@ -157,7 +157,8 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
-	// TODO Auto-create properties for Osc_Device settings
+	// TODO Auto-create properties for OSc_Device settings
+	// Call OSc_Device_Get_Settings(); create an MM property for each setting
 
 	// Standard properties Exposure and Binning - not used for LSM
 	err = CreateFloatProperty(MM::g_Keyword_Exposure, 0.0, false);

@@ -10,6 +10,9 @@ const char* const DEVICE_NAME_Camera = "OpenScan";
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
 
+const char* const VALUE_Yes = "Yes";
+const char* const VALUE_No = "No";
+
 enum
 {
 	ERR_SCANNER_AND_DETECTOR_REQUIRED = 30000,
@@ -157,8 +160,9 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
-	// TODO Auto-create properties for OSc_Device settings
-	// Call OSc_Device_Get_Settings(); create an MM property for each setting
+	err = GenerateProperties();
+	if (err != DEVICE_OK)
+		return err;
 
 	// Standard properties Exposure and Binning - not used for LSM
 	err = CreateFloatProperty(MM::g_Keyword_Exposure, 0.0, false);
@@ -182,6 +186,156 @@ OpenScan::Shutdown()
 	OSc_LSM_Destroy(oscLSM_);
 	oscLSM_ = 0;
 
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::GenerateProperties()
+{
+	OSc_Error err;
+	OSc_Scanner* scanner;
+	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
+	OSc_Detector* detector;
+	err = OSc_LSM_Get_Detector(oscLSM_, &detector);
+	OSc_Device* scannerDevice;
+	err = OSc_Scanner_Get_Device(scanner, &scannerDevice);
+	OSc_Device* detectorDevice;
+	err = OSc_Detector_Get_Device(detector, &detectorDevice);
+
+	OSc_Setting** settings;
+	size_t count;
+	err = OSc_Device_Get_Settings(scannerDevice, &settings, &count);
+	err = GenerateProperties(settings, count);
+
+	if (detectorDevice != scannerDevice)
+	{
+		err = OSc_Device_Get_Settings(detectorDevice, &settings, &count);
+		err = GenerateProperties(settings, count);
+	}
+
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
+{
+	OSc_Error err;
+	for (size_t i = 0; i < count; ++i)
+	{
+		OSc_Setting* setting = settings[i];
+
+		long index = static_cast<long>(settingIndex_.size());
+		settingIndex_.push_back(setting);
+
+		char name[OSc_MAX_STR_LEN + 1];
+		err = OSc_Setting_Get_Name(setting, name);
+		OSc_Value_Type valueType;
+		err = OSc_Setting_Get_Value_Type(setting, &valueType);
+		bool writable;
+		err = OSc_Setting_Is_Writable(setting, &writable);
+
+		switch (valueType)
+		{
+			case OSc_Value_Type_String:
+			{
+				char value[OSc_MAX_STR_LEN + 1];
+				err = OSc_Setting_Get_String_Value(setting, value);
+				CPropertyActionEx* handler = new CPropertyActionEx(this,
+					&OpenScan::OnStringProperty, index);
+				err = CreateStringProperty(name, value, !writable, handler);
+				break;
+			}
+			case OSc_Value_Type_Bool:
+			{
+				bool value;
+				err = OSc_Setting_Get_Bool_Value(setting, &value);
+				CPropertyActionEx* handler = new CPropertyActionEx(this,
+					&OpenScan::OnBoolProperty, index);
+				err = CreateStringProperty(name, value ? VALUE_Yes : VALUE_No, !writable, handler);
+				break;
+			}
+			case OSc_Value_Type_Int32:
+			{
+				int32_t value;
+				err = OSc_Setting_Get_Int32_Value(setting, &value);
+				CPropertyActionEx* handler = new CPropertyActionEx(this,
+					&OpenScan::OnInt32Property, index);
+				err = CreateIntegerProperty(name, value, !writable, handler);
+				OSc_Value_Constraint constraint;
+				err = OSc_Setting_Get_Numeric_Constraint_Type(setting, &constraint);
+				switch (constraint)
+				{
+				case OSc_Value_Constraint_Discrete_Values:
+					int32_t* values;
+					size_t numValues;
+					err = OSc_Setting_Get_Int32_Discrete_Values(setting, &values, &numValues);
+					for (int j = 0; j < numValues; ++j)
+					{
+						char valueStr[OSc_MAX_STR_LEN + 1];
+						snprintf(valueStr, OSc_MAX_STR_LEN, "%d", values[j]);
+						err = AddAllowedValue(name, valueStr);
+					}
+					break;
+				case OSc_Value_Constraint_Range:
+					int32_t min, max;
+					err = OSc_Setting_Get_Int32_Range(setting, &min, &max);
+					SetPropertyLimits(name, min, max);
+					break;
+				}
+				break;
+			}
+			case OSc_Value_Type_Float64:
+			{
+				double value;
+				err = OSc_Setting_Get_Float64_Value(setting, &value);
+				CPropertyActionEx* handler = new CPropertyActionEx(this,
+					&OpenScan::OnFloat64Property, index);
+				err = CreateFloatProperty(name, value, !writable, handler);
+				OSc_Value_Constraint constraint;
+				err = OSc_Setting_Get_Numeric_Constraint_Type(setting, &constraint);
+				switch (constraint)
+				{
+				case OSc_Value_Constraint_Discrete_Values:
+					double* values;
+					size_t numValues;
+					err = OSc_Setting_Get_Float64_Discrete_Values(setting, &values, &numValues);
+					for (int j = 0; j < numValues; ++j)
+					{
+						char valueStr[OSc_MAX_STR_LEN + 1];
+						snprintf(valueStr, OSc_MAX_STR_LEN, "%e", values[j]);
+						err = AddAllowedValue(name, valueStr);
+					}
+					break;
+				case OSc_Value_Constraint_Range:
+					double min, max;
+					err = OSc_Setting_Get_Float64_Range(setting, &min, &max);
+					SetPropertyLimits(name, min, max);
+					break;
+				}
+				break;
+			}
+			case OSc_Value_Type_Enum:
+			{
+				uint32_t value;
+				err = OSc_Setting_Get_Enum_Value(setting, &value);
+				char valueStr[OSc_MAX_STR_LEN + 1];
+				err = OSc_Setting_Get_Enum_Name_For_Value(setting, value, valueStr);
+				CPropertyActionEx* handler = new CPropertyActionEx(this,
+					&OpenScan::OnEnumProperty, index);
+				err = CreateStringProperty(name, valueStr, !writable, handler);
+				uint32_t numValues;
+				err = OSc_Setting_Get_Enum_Num_Values(setting, &numValues);
+				for (uint32_t j = 0; j < numValues; ++j)
+				{
+					err = OSc_Setting_Get_Enum_Name_For_Value(setting, j, valueStr);
+					err = AddAllowedValue(name, valueStr);
+				}
+				break;
+			}
+		}
+	}
 	return DEVICE_OK;
 }
 
@@ -477,4 +631,113 @@ OpenScan::IsCapturing()
 	if (err != OSc_Error_OK)
 		return false;
 	return isRunning;
+}
+
+
+int
+OpenScan::OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
+{
+	OSc_Error err;
+	OSc_Setting* setting = settingIndex_[data];
+	if (eAct == MM::BeforeGet)
+	{
+		char value[OSc_MAX_STR_LEN + 1];
+		err = OSc_Setting_Get_String_Value(setting, value);
+		pProp->Set(value);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string value;
+		pProp->Get(value);
+		err = OSc_Setting_Set_String_Value(setting, value.c_str());
+	}
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
+{
+	OSc_Error err;
+	OSc_Setting* setting = settingIndex_[data];
+	if (eAct == MM::BeforeGet)
+	{
+		bool value;
+		err = OSc_Setting_Get_Bool_Value(setting, &value);
+		pProp->Set(value ? VALUE_Yes : VALUE_No);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string value;
+		pProp->Get(value);
+		err = OSc_Setting_Set_Bool_Value(setting, value == VALUE_Yes);
+	}
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::OnInt32Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
+{
+	OSc_Error err;
+	OSc_Setting* setting = settingIndex_[data];
+	if (eAct == MM::BeforeGet)
+	{
+		int32_t value;
+		err = OSc_Setting_Get_Int32_Value(setting, &value);
+		pProp->Set(static_cast<long>(value));
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		long value;
+		pProp->Get(value);
+		err = OSc_Setting_Set_Int32_Value(setting, static_cast<int32_t>(value));
+	}
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
+{
+	OSc_Error err;
+	OSc_Setting* setting = settingIndex_[data];
+	if (eAct == MM::BeforeGet)
+	{
+		double value;
+		err = OSc_Setting_Get_Float64_Value(setting, &value);
+		pProp->Set(value);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		double value;
+		pProp->Get(value);
+		err = OSc_Setting_Set_Float64_Value(setting, value);
+	}
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
+{
+	OSc_Error err;
+	OSc_Setting* setting = settingIndex_[data];
+	if (eAct == MM::BeforeGet)
+	{
+		uint32_t value;
+		err = OSc_Setting_Get_Enum_Value(setting, &value);
+		char valueStr[OSc_MAX_STR_LEN + 1];
+		err = OSc_Setting_Get_Enum_Name_For_Value(setting, value, valueStr);
+		pProp->Set(valueStr);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string valueStr;
+		pProp->Get(valueStr);
+		uint32_t value;
+		err = OSc_Setting_Get_Enum_Value_For_Name(setting, &value, valueStr.c_str());
+		err = OSc_Setting_Set_Enum_Value(setting, value);
+	}
+	return DEVICE_OK;
 }

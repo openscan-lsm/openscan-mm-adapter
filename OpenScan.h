@@ -65,11 +65,21 @@ public:
 
 	virtual int IsExposureSequenceable(bool& f) const { f = false; return DEVICE_OK; }
 
-public:
+private: // Property handlers
+	std::vector<OSc_Setting*> settingIndex_;
+	int OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+	int OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+	int OnInt32Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+	int OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+	int OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+
+public: // Internal functions called from non-class context
 	void LogOpenScanMessage(const char *msg, OSc_Log_Level level);
 	void StoreSnapImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 
 private:
+	int GenerateProperties();
+	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();
 };

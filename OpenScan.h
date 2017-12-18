@@ -7,12 +7,15 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 
 class OpenScan : public CCameraBase<OpenScan>
 {
 private:
 	OSc_LSM* oscLSM_;
+
+	std::vector< std::pair<size_t, size_t> > resolutions_;
 
 	std::vector<void*> snappedImages_; // Memory manually managed
 	OSc_Acquisition* sequenceAcquisition_;
@@ -66,6 +69,8 @@ public:
 	virtual int IsExposureSequenceable(bool& f) const { f = false; return DEVICE_OK; }
 
 private: // Property handlers
+	int OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct);
+
 	std::vector<OSc_Setting*> settingIndex_;
 	int OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
@@ -79,6 +84,7 @@ public: // Internal functions called from non-class context
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 
 private:
+	int InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice);
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();

@@ -5,10 +5,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
+#include <iterator>
+#include <set>
+#include <sstream>
+#include <utility>
+
 const char* const DEVICE_NAME_Camera = "OpenScan";
 
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
+const char* const PROPERTY_Resolution = "Resolution";
 
 const char* const VALUE_Yes = "Yes";
 const char* const VALUE_No = "No";
@@ -160,6 +167,10 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
+	err = InitializeResolution(scannerDevice, detectorDevice);
+	if (err != DEVICE_OK)
+		return err;
+
 	err = GenerateProperties();
 	if (err != DEVICE_OK)
 		return err;
@@ -185,6 +196,77 @@ OpenScan::Shutdown()
 
 	OSc_LSM_Destroy(oscLSM_);
 	oscLSM_ = 0;
+
+	return DEVICE_OK;
+}
+
+
+int
+OpenScan::InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice)
+{
+	std::set< std::pair<size_t, size_t> > scannerResolutions, detectorResolutions;
+
+	size_t* widths;
+	size_t* heights;
+	size_t nrResolutions;
+	OSc_Error err = OSc_Device_Get_Allowed_Resolutions(scannerDevice,
+		&widths, &heights, &nrResolutions);
+	if (err != OSc_Error_OK)
+		return err;
+	for (size_t i = 0; i < nrResolutions; ++i)
+		scannerResolutions.insert(std::make_pair(widths[i], heights[i]));
+
+	err = OSc_Device_Get_Allowed_Resolutions(detectorDevice,
+		&widths, &heights, &nrResolutions);
+	if (err != OSc_Error_OK)
+		return err;
+	for (size_t i = 0; i < nrResolutions; ++i)
+		detectorResolutions.insert(std::make_pair(widths[i], heights[i]));
+
+	std::vector< std::pair<size_t, size_t> > resolutions;
+	std::set_union(
+		scannerResolutions.begin(), scannerResolutions.end(),
+		detectorResolutions.begin(), detectorResolutions.end(),
+		std::back_inserter(resolutions));
+	if (resolutions.empty())
+		return DEVICE_ERR; // TODO No compatible resolutions!
+	std::sort(resolutions.begin(), resolutions.end());
+	resolutions_ = resolutions;
+
+	CreateStringProperty(PROPERTY_Resolution, "", false,
+		new CPropertyAction(this, &OpenScan::OnResolution));
+
+	std::vector< std::pair<size_t, size_t> >::const_iterator it, end;
+	for (it = resolutions_.begin(), end = resolutions_.end(); it != end; ++it)
+	{
+		std::ostringstream oss;
+		oss << it->first << 'x' << it->second;
+		AddAllowedValue(PROPERTY_Resolution, oss.str().c_str());
+	}
+
+	// Set a resolution that both the scanner and detector support.
+	// Default to the scanner's default if allowed, otherwise the first allowed.
+	if (scannerDevice != detectorDevice)
+	{
+		size_t width, height;
+		err = OSc_Device_Get_Resolution(scannerDevice, &width, &height);
+		if (detectorResolutions.count(std::make_pair(width, height)))
+		{
+			err = OSc_Device_Set_Resolution(detectorDevice, width, height);
+			if (err != OSc_Error_OK)
+				return err;
+		}
+		else
+		{
+			std::pair<size_t, size_t> widthHeight = resolutions_[0];
+			err = OSc_Device_Set_Resolution(scannerDevice, widthHeight.first, widthHeight.second);
+			if (err != OSc_Error_OK)
+				return err;
+			err = OSc_Device_Set_Resolution(detectorDevice, widthHeight.first, widthHeight.second);
+			if (err != OSc_Error_OK)
+				return err;
+		}
+	}
 
 	return DEVICE_OK;
 }
@@ -631,6 +713,76 @@ OpenScan::IsCapturing()
 	if (err != OSc_Error_OK)
 		return false;
 	return isRunning;
+}
+
+
+int
+OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	OSc_Error err;
+	OSc_Scanner* scanner;
+	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
+	if (err)
+		return err;
+	OSc_Detector* detector;
+	err = OSc_LSM_Get_Detector(oscLSM_, &detector);
+	if (err)
+		return err;
+	OSc_Device* scannerDevice;
+	err = OSc_Scanner_Get_Device(scanner, &scannerDevice);
+	if (err)
+		return err;
+	OSc_Device* detectorDevice;
+	err = OSc_Detector_Get_Device(detector, &detectorDevice);
+	if (err)
+		return err;
+
+	if (eAct == MM::BeforeGet)
+	{
+		size_t width, height;
+		err = OSc_Device_Get_Resolution(scannerDevice, &width, &height);
+		if (err)
+			return err;
+		if (detectorDevice != scannerDevice)
+		{
+			size_t dWidth, dHeight;
+			err = OSc_Device_Get_Resolution(detectorDevice, &dWidth, &dHeight);
+			if (err)
+				return err;
+			if (dWidth != width || dHeight != height)
+			{
+				pProp->Set("");
+				return DEVICE_OK;
+			}
+		}
+
+		std::ostringstream oss;
+		oss << width << 'x' << height;
+		pProp->Set(oss.str().c_str());
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string s;
+		pProp->Get(s);
+
+		size_t width, height;
+		std::string::size_type xPosition = s.find('x');
+		std::istringstream wiss(s.substr(0, xPosition));
+		wiss >> width;
+		std::istringstream hiss(s.substr(xPosition + 1));
+		hiss >> height;
+
+		err = OSc_Device_Set_Resolution(scannerDevice, width, height);
+		if (err)
+			return err;
+		if (detectorDevice != scannerDevice)
+		{
+			err = OSc_Device_Set_Resolution(detectorDevice, width, height);
+			if (err)
+				return err;
+		}
+	}
+	return DEVICE_OK;
 }
 
 

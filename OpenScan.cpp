@@ -121,12 +121,12 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
-	char scannerName[OSc_MAX_STR_LEN + 1];
+	char scannerName[MM::MaxStrLength + 1];
 	int stat = GetProperty(PROPERTY_Scanner, scannerName);
 	if (stat != DEVICE_OK)
 		return stat;
 
-	char detectorName[OSc_MAX_STR_LEN + 1];
+	char detectorName[MM::MaxStrLength + 1];
 	stat = GetProperty(PROPERTY_Detector, detectorName);
 	if (stat != DEVICE_OK)
 		return stat;

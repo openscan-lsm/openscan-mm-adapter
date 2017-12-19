@@ -342,6 +342,8 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 				CPropertyActionEx* handler = new CPropertyActionEx(this,
 					&OpenScan::OnBoolProperty, index);
 				err = CreateStringProperty(name, value ? VALUE_Yes : VALUE_No, !writable, handler);
+				err = AddAllowedValue(name, VALUE_Yes);
+				err = AddAllowedValue(name, VALUE_No);
 				break;
 			}
 			case OSc_Value_Type_Int32:
@@ -392,7 +394,7 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 					for (int j = 0; j < numValues; ++j)
 					{
 						char valueStr[OSc_MAX_STR_LEN + 1];
-						snprintf(valueStr, OSc_MAX_STR_LEN, "%e", values[j]);
+						snprintf(valueStr, OSc_MAX_STR_LEN, "%0.4f", values[j]);
 						err = AddAllowedValue(name, valueStr);
 					}
 					break;

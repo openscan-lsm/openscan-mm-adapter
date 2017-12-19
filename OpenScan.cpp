@@ -148,9 +148,12 @@ OpenScan::Initialize()
 	err = OSc_Device_Open(scannerDevice, oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
-	err = OSc_Device_Open(detectorDevice, oscLSM_);
-	if (err != OSc_Error_OK)
-		return err;
+	if (detectorDevice != scannerDevice)
+	{
+		err = OSc_Device_Open(detectorDevice, oscLSM_);
+		if (err != OSc_Error_OK)
+			return err;
+	}
 
 	OSc_Scanner* scanner;
 	err = OSc_Device_Get_Scanner(scannerDevice, &scanner);
@@ -192,6 +195,9 @@ OpenScan::Initialize()
 int
 OpenScan::Shutdown()
 {
+	if (!oscLSM_)
+		return DEVICE_OK;
+
 	StopSequenceAcquisition();
 
 	OSc_LSM_Destroy(oscLSM_);
@@ -661,6 +667,9 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 int
 OpenScan::StopSequenceAcquisition()
 {
+	if (!oscLSM_)
+		return DEVICE_OK;
+
 	if (!IsCapturing() || !sequenceAcquisition_)
 		return DEVICE_OK;
 
@@ -708,6 +717,9 @@ OpenScan::SendSequenceImage(OSc_Acquisition*, uint32_t chan, void* pixels)
 bool
 OpenScan::IsCapturing()
 {
+	if (!oscLSM_)
+		return false;
+
 	bool isRunning;
 	OSc_Error err = OSc_LSM_Is_Running_Acquisition(oscLSM_, &isRunning);
 	if (err != OSc_Error_OK)

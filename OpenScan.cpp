@@ -67,10 +67,10 @@ OpenScan::OpenScan() :
 			!name || !name[0])
 			continue;
 
-		bool flag;
-		if (OSc_Device_Has_Scanner(device, &flag) == OSc_Error_OK)
+		bool flag = false;
+		if (OSc_Device_Has_Scanner(device, &flag) == OSc_Error_OK && flag)
 			scannerDevices_[name] = device;
-		if (OSc_Device_Has_Detector(device, &flag) == OSc_Error_OK)
+		if (OSc_Device_Has_Detector(device, &flag) == OSc_Error_OK && flag)
 			detectorDevices_[name] = device;
 	}
 

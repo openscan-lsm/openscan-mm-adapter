@@ -11,7 +11,11 @@
 #include <sstream>
 #include <utility>
 
-const char* const DEVICE_NAME_Camera = "OpenScan";
+// External names used by the rest of the system
+// to load particular device from the "OpenScan.dll" library
+const char* const DEVICE_NAME_Hub = "OScHub";
+const char* const DEVICE_NAME_Camera = "OSc-LSM";
+const char* const DEVICE_NAME_Ablation = "OSc-Ablation";
 
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
@@ -26,18 +30,22 @@ enum
 };
 
 
-MODULE_API void
-InitializeModuleData()
+MODULE_API void InitializeModuleData()
 {
-	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "OpenScan Laser Scanning System");
+	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "OpenScan Laser Scanning Microscope"); // scan and imaging
+	//RegisterDevice(DEVICE_NAME_Ablation, MM::SignalIODevice, "OpenScan Photo Ablation"); // DAQ analog out only
+	RegisterDevice(DEVICE_NAME_Hub, MM::HubDevice, "OpenScan Laser Scanning System");
 }
 
 
-MODULE_API MM::Device*
-CreateDevice(const char* name)
+MODULE_API MM::Device* CreateDevice(const char* deviceName)
 {
-	if (std::string(name) == DEVICE_NAME_Camera)
+	if (std::string(deviceName) == DEVICE_NAME_Camera)
 		return new OpenScan();
+	//else if (std::string(deviceName) == DEVICE_NAME_Ablation)
+	//	return new OpenScanAO();
+	else if (std::string(deviceName) == DEVICE_NAME_Hub)
+		return new OpenScanHub();
 	return 0;
 }
 
@@ -53,6 +61,9 @@ OpenScan::OpenScan() :
 	oscLSM_(0),
 	sequenceAcquisition_(0)
 {
+	// parent ID display
+	CreateHubIDProperty();
+
 	size_t count;
 	if (OSc_Devices_Get_Count(&count) != OSc_Error_OK)
 		return;
@@ -117,6 +128,16 @@ OpenScan::LogOpenScanMessage(const char *msg, OSc_Log_Level level)
 int
 OpenScan::Initialize()
 {
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+	{
+		char hubLabel[MM::MaxStrLength];
+		pHub->GetLabel(hubLabel);
+		SetParentID(hubLabel); // for backward comp.
+	}
+	else
+		LogMessage("Parent Hub not defined.");
+
 	OSc_Error err = OSc_LSM_Create(&oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
@@ -906,4 +927,82 @@ OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data
 		err = OSc_Setting_Set_Enum_Value(setting, value);
 	}
 	return DEVICE_OK;
+}
+
+
+int OpenScanHub::Initialize()
+{
+	initialized_ = true;
+	return DEVICE_OK;
+}
+
+
+void OpenScanHub::GetName(char * pName) const
+{
+	CDeviceUtils::CopyLimitedString(pName, DEVICE_NAME_Hub);
+}
+
+
+int OpenScanHub::DetectInstalledDevices()
+{
+	ClearInstalledDevices();
+
+	// make sure this method is called before we look for available devices
+	InitializeModuleData();
+
+	char hubName[MM::MaxStrLength];
+	GetName(hubName); // this device name
+	for (unsigned i = 0; i<GetNumberOfDevices(); i++)
+	{
+		char deviceName[MM::MaxStrLength];
+		bool success = GetDeviceName(i, deviceName, MM::MaxStrLength);
+		if (success && (strcmp(hubName, deviceName) != 0))
+		{
+			MM::Device* pDev = CreateDevice(deviceName);
+			AddInstalledDevice(pDev);
+		}
+	}
+	return DEVICE_OK;
+}
+
+OpenScanAO::OpenScanAO()
+{
+}
+
+OpenScanAO::~OpenScanAO()
+{
+}
+
+int OpenScanAO::Initialize()
+{
+	return 0;
+}
+
+int OpenScanAO::Shutdown()
+{
+	return 0;
+}
+
+void OpenScanAO::GetName(char * name) const
+{
+}
+
+int OpenScanAO::SetGateOpen(bool open)
+{
+	return 0;
+}
+
+int OpenScanAO::GetGateOpen(bool & open)
+{
+	return 0;
+}
+
+int OpenScanAO::SetSignal(double volts)
+{
+	return 0;
+}
+
+int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
+{
+	return 0;
 }

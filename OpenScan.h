@@ -10,6 +10,30 @@
 #include <vector>
 
 
+class OpenScanHub : public HubBase<OpenScanHub>
+{
+public:
+	OpenScanHub() :
+		initialized_(false),
+		busy_(false)
+	{}
+	~OpenScanHub() {}
+
+	// Device API
+	int Initialize();
+	int Shutdown() { return DEVICE_OK; };
+	void GetName(char* pName) const;
+	bool Busy() { return busy_; };
+
+	// Hub api
+	int DetectInstalledDevices();
+
+private:
+	bool initialized_;
+	bool busy_;
+};
+
+
 class OpenScan : public CCameraBase<OpenScan>
 {
 private:
@@ -88,4 +112,24 @@ private:
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();
+};
+
+
+class OpenScanAO : public CSignalIOBase<OpenScanAO>
+{
+public:
+	OpenScanAO();
+	virtual ~OpenScanAO();
+
+	virtual int Initialize();
+	virtual int Shutdown();
+
+	virtual void GetName(char* name) const;
+	virtual bool Busy() { return false; }
+
+	virtual int SetGateOpen(bool open);
+	virtual int GetGateOpen(bool& open);
+	virtual int SetSignal(double volts);
+	virtual int GetSignal(double& /* volts */) { return DEVICE_UNSUPPORTED_COMMAND; }
+	virtual int GetLimits(double& minVolts, double& maxVolts);
 };

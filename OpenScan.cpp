@@ -659,7 +659,12 @@ extern "C"
 int
 OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 {
-	if (IsCapturing() || sequenceAcquisition_)
+	// I cannot think of a reasonable situation 
+	// when IsCapturing is false while sequenceAcquisition_ is true.
+	// possibly it means previous live mode is not stopped properly
+	// anyway remove sequenceAcquisition_ from if ocndition for now
+	// TODO: need to fully test whether this change is valid?
+	if (IsCapturing())
 		return DEVICE_CAMERA_BUSY_ACQUIRING;
 
 	if (count < 1)

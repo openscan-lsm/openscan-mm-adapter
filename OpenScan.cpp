@@ -638,7 +638,7 @@ extern "C"
 int
 OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 {
-	if (IsCapturing() || sequenceAcquisition_)
+	if (IsCapturing())
 		return DEVICE_CAMERA_BUSY_ACQUIRING;
 
 	if (count < 1)

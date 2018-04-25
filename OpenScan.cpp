@@ -16,13 +16,17 @@
 const char* const DEVICE_NAME_Hub = "OScHub";
 const char* const DEVICE_NAME_Camera = "OSc-LSM";
 const char* const DEVICE_NAME_Ablation = "OSc-Ablation";
+const char* const DEVICE_NAME_Magnifier = "OSc-Magnifier";
 
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
 const char* const PROPERTY_Resolution = "Resolution";
+const char* const PROPERTY_Magnification = "Magnification";
 
 const char* const VALUE_Yes = "Yes";
 const char* const VALUE_No = "No";
+
+const char* NoHubError = "Parent Hub not defined.";
 
 enum
 {
@@ -32,8 +36,9 @@ enum
 
 MODULE_API void InitializeModuleData()
 {
-	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "OpenScan Laser Scanning Microscope"); // scan and imaging
+	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "Laser Scanning Microscope"); // scan and imaging
 	//RegisterDevice(DEVICE_NAME_Ablation, MM::SignalIODevice, "OpenScan Photo Ablation"); // DAQ analog out only
+	RegisterDevice(DEVICE_NAME_Magnifier, MM::MagnifierDevice, "Pixel Size Magnifier");
 	RegisterDevice(DEVICE_NAME_Hub, MM::HubDevice, "OpenScan Laser Scanning System");
 }
 
@@ -44,6 +49,8 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
 		return new OpenScan();
 	//else if (std::string(deviceName) == DEVICE_NAME_Ablation)
 	//	return new OpenScanAO();
+	else if (std::string(deviceName) == DEVICE_NAME_Magnifier)
+		return new OpenScanMagnifier();
 	else if (std::string(deviceName) == DEVICE_NAME_Hub)
 		return new OpenScanHub();
 	return 0;
@@ -136,7 +143,7 @@ OpenScan::Initialize()
 		SetParentID(hubLabel); // for backward comp.
 	}
 	else
-		LogMessage("Parent Hub not defined.");
+		LogMessage(NoHubError);
 
 	OSc_Error err = OSc_LSM_Create(&oscLSM_);
 	if (err != OSc_Error_OK)
@@ -1010,4 +1017,174 @@ int OpenScanAO::SetSignal(double volts)
 int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
 {
 	return 0;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+// CDemoMagnifier implementation
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+OpenScanMagnifier::OpenScanMagnifier() :
+	position_(0),
+	magnification_(1.0),
+	highMag_(80),
+	isMagVariable_(true)
+{
+	CPropertyAction* pAct = new CPropertyAction(this, &OpenScanMagnifier::OnHighMag);
+	CreateFloatProperty("Highest Magnification", 80, false, pAct, true);
+
+	pAct = new CPropertyAction(this, &OpenScanMagnifier::OnVariable);
+	std::string propName = "Freely variable or fixed scaling ratio";
+	CreateStringProperty(propName.c_str(), "Variable", false, pAct, true);
+	AddAllowedValue(propName.c_str(), "Fixed");
+	AddAllowedValue(propName.c_str(), "Variable");
+
+	// parent ID display
+	CreateHubIDProperty();
+};
+
+void OpenScanMagnifier::GetName(char* name) const
+{
+	CDeviceUtils::CopyLimitedString(name, DEVICE_NAME_Magnifier);
+}
+
+int OpenScanMagnifier::Initialize()
+{
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+	{
+		char hubLabel[MM::MaxStrLength];
+		pHub->GetLabel(hubLabel);
+		SetParentID(hubLabel); // for backward comp.
+	}
+	else
+		LogMessage(NoHubError);
+
+	if (isMagVariable_)
+	{
+		CPropertyAction* pAct = new CPropertyAction(this, &OpenScanMagnifier::OnMagnification);
+		int ret = CreateFloatProperty(PROPERTY_Magnification, magnification_, false, pAct);
+		if (ret != DEVICE_OK)
+			return ret;
+		SetPropertyLimits(PROPERTY_Magnification, 0.1, highMag_);
+	}
+	else
+	{
+		CPropertyAction* pAct = new CPropertyAction(this, &OpenScanMagnifier::OnPosition);
+		int ret = CreateStringProperty("Position", "1x", false, pAct);
+		if (ret != DEVICE_OK)
+			return ret;
+
+		position_ = 0;
+
+		AddAllowedValue("Position", "1x");
+		AddAllowedValue("Position", highMagString().c_str());
+	}
+
+	int ret = UpdateStatus();
+	if (ret != DEVICE_OK)
+		return ret;
+
+	return DEVICE_OK;
+}
+
+std::string OpenScanMagnifier::highMagString() {
+	std::ostringstream os;
+	os << highMag_ << "x";
+	return os.str();
+}
+
+double OpenScanMagnifier::GetMagnification() {
+	if (isMagVariable_)
+	{
+		return magnification_;
+	}
+	else
+	{
+		if (position_ == 0)
+			return 1.0;
+		return highMag_;
+	}
+}
+
+// only called when magnification is variable (mostly the case for LSM),
+// so basically no use for OpenScan
+int OpenScanMagnifier::OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		// nothing to do, let the caller use cached property
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string pos;
+		pProp->Get(pos);
+		if (pos == "1x")
+		{
+			position_ = 0;
+		}
+		else {
+			position_ = 1;
+		}
+		OnMagnifierChanged();
+	}
+
+	return DEVICE_OK;
+}
+
+// TODO: link it to chagne of zoom and resolution in OpenScan
+// mag = (zoom/defaultZoom(1)) * (resolution/defaultResolution(512))
+int OpenScanMagnifier::OnMagnification(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		pProp->Set(magnification_);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		pProp->Get(magnification_);
+		OnMagnifierChanged();
+	}
+	return DEVICE_OK;
+}
+
+// Highest magnification set for the system
+// useful when isMagVariable_ = false
+int OpenScanMagnifier::OnHighMag(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		pProp->Set(highMag_);
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		pProp->Get(highMag_);
+		ClearAllowedValues("Position");
+		AddAllowedValue("Position", "1x");
+		AddAllowedValue("Position", highMagString().c_str());
+	}
+
+	return DEVICE_OK;
+}
+
+// For LSM usually need to set to "Variable", 
+// i.e., isMagVariable_ = true
+int OpenScanMagnifier::OnVariable(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+	if (eAct == MM::BeforeGet)
+	{
+		std::string response = "Fixed";
+		if (isMagVariable_)
+			response = "Variable";
+		pProp->Set(response.c_str());
+	}
+	else if (eAct == MM::AfterSet)
+	{
+		std::string response;
+		pProp->Get(response);
+		if (response == "Fixed")
+			isMagVariable_ = false;
+		else
+			isMagVariable_ = true;
+	}
+	return DEVICE_OK;
 }

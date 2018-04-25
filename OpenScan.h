@@ -133,3 +133,38 @@ public:
 	virtual int GetSignal(double& /* volts */) { return DEVICE_UNSUPPORTED_COMMAND; }
 	virtual int GetLimits(double& minVolts, double& maxVolts);
 };
+
+
+
+// Magnifier for scaling pixel size with respect to resolution and zoom change
+class OpenScanMagnifier : public CMagnifierBase<OpenScanMagnifier>
+{
+public:
+	OpenScanMagnifier();
+
+	~OpenScanMagnifier() {};
+
+	int Shutdown() { return DEVICE_OK; }
+
+	void GetName(char* name) const;
+
+	bool Busy() { return false; }
+	int Initialize();
+
+	double GetMagnification();
+
+	// action interface
+	// ----------------
+	int OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct);
+	int OnMagnification(MM::PropertyBase* pProp, MM::ActionType eAct);
+	int OnHighMag(MM::PropertyBase* pProp, MM::ActionType eAct);
+	int OnVariable(MM::PropertyBase* pProp, MM::ActionType eAct);
+
+private:
+	std::string highMagString();
+
+	int position_;  // 0: 1x magnification. 1: highest mag.
+	double magnification_;
+	double highMag_;
+	bool isMagVariable_;
+};

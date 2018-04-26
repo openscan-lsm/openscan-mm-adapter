@@ -458,7 +458,7 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 }
 
 
-// parse magnification from OpenScan to OpenScanMagnifier
+// Pass magnification from OpenScan to OpenScanMagnifier
 int OpenScan::GetMagnification(double *magnification)
 {
 	OSc_Error err;
@@ -477,8 +477,9 @@ int OpenScan::GetMagnification(double *magnification)
 	if (err)
 		return err;
 	char msg[OSc_MAX_STR_LEN + 1];
-	snprintf(msg, OSc_MAX_STR_LEN, "magnification is: %6.2f", *magnification);
+	snprintf(msg, OSc_MAX_STR_LEN, "Updated magnification is: %6.2f", *magnification);
 	LogMessage(msg, true);
+	//LogMessage(("Updated magnification: " + boost::lexical_cast<std::string>(*magnification) + "x").c_str(), true);
 
 	return DEVICE_OK;
 }
@@ -833,8 +834,7 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 		oss << width << 'x' << height;
 		pProp->Set(oss.str().c_str());
 
-		err = GetMagnification(&mag_);  // update magnification whenever resolution changes
-		if (err) return err;
+		//GetMagnification(&OpenScanMagnifier::magnification_);  // update magnification whenever resolution changes
 	}
 	else if (eAct == MM::AfterSet)
 	{
@@ -858,9 +858,8 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 				return err;
 		}
 
-		err = GetMagnification(&mag_);  // update magnification whenever resolution changes
+		err = GetMagnification(&OpenScanMagnifier::magnification_);  // update magnification whenever resolution changes
 		if (err) return err;
-
 	}
 	return DEVICE_OK;
 }
@@ -940,9 +939,7 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		err = OSc_Setting_Get_Float64_Value(setting, &value);
 		pProp->Set(value);
 
-		err = GetMagnification(&mag_);  // update magnification whenever (float)zoom changes
-		if (err) return err;
-
+		//GetMagnification(&OpenScanMagnifier::magnification_);  // update magnification whenever (float)zoom change
 	}
 	else if (eAct == MM::AfterSet)
 	{
@@ -950,9 +947,8 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		pProp->Get(value);
 		err = OSc_Setting_Set_Float64_Value(setting, value);
 
-		err = GetMagnification(&mag_);  // update magnification whenever (float)zoom changes
+		err = GetMagnification(&OpenScanMagnifier::magnification_);  // update magnification whenever (float)zoom changes
 		if (err) return err;
-
 	}
 	return DEVICE_OK;
 }
@@ -1070,7 +1066,6 @@ int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 OpenScanMagnifier::OpenScanMagnifier() :
 	position_(0),
-	magnification_(1.0),
 	highMag_(80),
 	isMagVariable_(true)
 {
@@ -1107,7 +1102,8 @@ int OpenScanMagnifier::Initialize()
 	
 	if (isMagVariable_)
 	{
-		int ret = CreateFloatProperty(PROPERTY_Magnification, magnification_, true);
+		int ret = CreateFloatProperty(PROPERTY_Magnification, magnification_, true, 
+			new CPropertyAction(this, &OpenScanMagnifier::OnMagnification));
 		if (ret != DEVICE_OK)
 			return ret;
 		//SetPropertyLimits(PROPERTY_Magnification, 0.1, highMag_);

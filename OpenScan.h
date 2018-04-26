@@ -95,6 +95,8 @@ public:
 private: // Property handlers
 	int OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct);
 
+	int GetMagnification(double *magnification);
+
 	std::vector<OSc_Setting*> settingIndex_;
 	int OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
@@ -112,10 +114,6 @@ private:
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();
-
-public:
-	double mag_;
-	int GetMagnification(double *magnification);
 };
 
 
@@ -153,6 +151,11 @@ public:
 	int Initialize();
 
 	double GetMagnification();
+	
+	// make magnification_ static so that it can be accessed and updated
+	// by OpenScan class whenever zomm or resolution changes
+	// TODO: better way to passing value between different classes, friend, class pointer?
+	static double magnification_;
 
 	// action interface
 	// ----------------
@@ -165,7 +168,9 @@ private:
 	std::string highMagString();
 
 	int position_;  // 0: 1x magnification. 1: highest mag.
-	double magnification_;
 	double highMag_;
 	bool isMagVariable_;
 };
+
+// initialize outside the class.
+double OpenScanMagnifier::magnification_ = 1.0;

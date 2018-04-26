@@ -112,6 +112,10 @@ private:
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();
+
+public:
+	double mag_;
+	int GetMagnification(double *magnification);
 };
 
 
@@ -141,13 +145,10 @@ class OpenScanMagnifier : public CMagnifierBase<OpenScanMagnifier>
 {
 public:
 	OpenScanMagnifier();
-
 	~OpenScanMagnifier() {};
 
 	int Shutdown() { return DEVICE_OK; }
-
 	void GetName(char* name) const;
-
 	bool Busy() { return false; }
 	int Initialize();
 

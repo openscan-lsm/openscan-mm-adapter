@@ -458,6 +458,32 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 }
 
 
+// parse magnification from OpenScan to OpenScanMagnifier
+int OpenScan::GetMagnification(double *magnification)
+{
+	OSc_Error err;
+
+	// for now only consider scanner as pixel size is determined by scan waveform in LSM
+	OSc_Scanner* scanner;
+	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
+	if (err)
+		return err;
+	OSc_Device* scannerDevice;
+	err = OSc_Scanner_Get_Device(scanner, &scannerDevice);
+	if (err)
+		return err;
+
+	err = OSc_Device_Get_Magnification(scannerDevice, magnification);
+	if (err)
+		return err;
+	char msg[OSc_MAX_STR_LEN + 1];
+	snprintf(msg, OSc_MAX_STR_LEN, "magnification is: %6.2f", *magnification);
+	LogMessage(msg, true);
+
+	return DEVICE_OK;
+}
+
+
 bool
 OpenScan::Busy()
 {
@@ -806,6 +832,9 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 		std::ostringstream oss;
 		oss << width << 'x' << height;
 		pProp->Set(oss.str().c_str());
+
+		err = GetMagnification(&mag_);  // update magnification whenever resolution changes
+		if (err) return err;
 	}
 	else if (eAct == MM::AfterSet)
 	{
@@ -828,6 +857,10 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 			if (err)
 				return err;
 		}
+
+		err = GetMagnification(&mag_);  // update magnification whenever resolution changes
+		if (err) return err;
+
 	}
 	return DEVICE_OK;
 }
@@ -906,12 +939,20 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		double value;
 		err = OSc_Setting_Get_Float64_Value(setting, &value);
 		pProp->Set(value);
+
+		err = GetMagnification(&mag_);  // update magnification whenever (float)zoom changes
+		if (err) return err;
+
 	}
 	else if (eAct == MM::AfterSet)
 	{
 		double value;
 		pProp->Get(value);
 		err = OSc_Setting_Set_Float64_Value(setting, value);
+
+		err = GetMagnification(&mag_);  // update magnification whenever (float)zoom changes
+		if (err) return err;
+
 	}
 	return DEVICE_OK;
 }
@@ -977,6 +1018,10 @@ int OpenScanHub::DetectInstalledDevices()
 	return DEVICE_OK;
 }
 
+
+////////////////////////////////////////////////////////////
+// TODO: SingleIO device to control a second pair of galvos
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 OpenScanAO::OpenScanAO()
 {
 }
@@ -1021,7 +1066,7 @@ int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// CDemoMagnifier implementation
+// Pixel size auto scalling implemented with Magnifier
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 OpenScanMagnifier::OpenScanMagnifier() :
 	position_(0),
@@ -1059,18 +1104,18 @@ int OpenScanMagnifier::Initialize()
 	else
 		LogMessage(NoHubError);
 
+	
 	if (isMagVariable_)
 	{
-		CPropertyAction* pAct = new CPropertyAction(this, &OpenScanMagnifier::OnMagnification);
-		int ret = CreateFloatProperty(PROPERTY_Magnification, magnification_, false, pAct);
+		int ret = CreateFloatProperty(PROPERTY_Magnification, magnification_, true);
 		if (ret != DEVICE_OK)
 			return ret;
-		SetPropertyLimits(PROPERTY_Magnification, 0.1, highMag_);
+		//SetPropertyLimits(PROPERTY_Magnification, 0.1, highMag_);
 	}
 	else
 	{
-		CPropertyAction* pAct = new CPropertyAction(this, &OpenScanMagnifier::OnPosition);
-		int ret = CreateStringProperty("Position", "1x", false, pAct);
+		int ret = CreateStringProperty("Position", "1x", false, 
+			new CPropertyAction(this, &OpenScanMagnifier::OnPosition));
 		if (ret != DEVICE_OK)
 			return ret;
 

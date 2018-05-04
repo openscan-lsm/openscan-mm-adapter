@@ -9,28 +9,44 @@
 #include <string>
 #include <vector>
 
+class OpenScan;
+class OpenScanMagnifier;
+
 
 class OpenScanHub : public HubBase<OpenScanHub>
 {
 public:
+	typedef int (OpenScanMagnifier::*MagChangeNotifierType)();
+
+private:
+	OpenScan* openScanCamera_;
+	OpenScanMagnifier* magnifier_;
+	MagChangeNotifierType magChangeNotifier_;
+
+public:
 	OpenScanHub() :
-		initialized_(false),
-		busy_(false)
+		openScanCamera_(0),
+		magnifier_(0),
+		magChangeNotifier_(0)
 	{}
 	~OpenScanHub() {}
 
 	// Device API
 	int Initialize();
-	int Shutdown() { return DEVICE_OK; };
+	int Shutdown() { return DEVICE_OK; }
 	void GetName(char* pName) const;
-	bool Busy() { return busy_; };
+	bool Busy() { return false; }
 
 	// Hub api
 	int DetectInstalledDevices();
 
-private:
-	bool initialized_;
-	bool busy_;
+public: // Internal interface for peripherals
+	void SetCameraDevice(OpenScan* camera);
+	void SetMagnificationChangeNotifier(OpenScanMagnifier* magnifier,
+		MagChangeNotifierType notifier);
+
+	int GetMagnification(double* mag);
+	int OnMagnifierChanged();
 };
 
 
@@ -95,8 +111,6 @@ public:
 private: // Property handlers
 	int OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct);
 
-	int GetMagnification(double *magnification);
-
 	std::vector<OSc_Setting*> settingIndex_;
 	int OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
@@ -108,6 +122,9 @@ public: // Internal functions called from non-class context
 	void LogOpenScanMessage(const char *msg, OSc_Log_Level level);
 	void StoreSnapImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
+
+public: // Internal interface
+	int GetMagnification(double *magnification);
 
 private:
 	int InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice);
@@ -145,32 +162,13 @@ public:
 	OpenScanMagnifier();
 	~OpenScanMagnifier() {};
 
-	int Shutdown() { return DEVICE_OK; }
+	int Shutdown();
 	void GetName(char* name) const;
 	bool Busy() { return false; }
 	int Initialize();
 
 	double GetMagnification();
-	
-	// make magnification_ static so that it can be accessed and updated
-	// by OpenScan class whenever zomm or resolution changes
-	// TODO: better way to passing value between different classes, friend, class pointer?
-	static double magnification_;
-
-	// action interface
-	// ----------------
-	int OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct);
-	int OnMagnification(MM::PropertyBase* pProp, MM::ActionType eAct);
-	int OnHighMag(MM::PropertyBase* pProp, MM::ActionType eAct);
-	int OnVariable(MM::PropertyBase* pProp, MM::ActionType eAct);
 
 private:
-	std::string highMagString();
-
-	int position_;  // 0: 1x magnification. 1: highest mag.
-	double highMag_;
-	bool isMagVariable_;
+	int HandleMagnificationChange();
 };
-
-// initialize outside the class.
-double OpenScanMagnifier::magnification_ = 1.0;

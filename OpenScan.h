@@ -9,6 +9,46 @@
 #include <string>
 #include <vector>
 
+class OpenScan;
+class OpenScanMagnifier;
+
+
+class OpenScanHub : public HubBase<OpenScanHub>
+{
+public:
+	typedef int (OpenScanMagnifier::*MagChangeNotifierType)();
+
+private:
+	OpenScan* openScanCamera_;
+	OpenScanMagnifier* magnifier_;
+	MagChangeNotifierType magChangeNotifier_;
+
+public:
+	OpenScanHub() :
+		openScanCamera_(0),
+		magnifier_(0),
+		magChangeNotifier_(0)
+	{}
+	~OpenScanHub() {}
+
+	// Device API
+	int Initialize();
+	int Shutdown() { return DEVICE_OK; }
+	void GetName(char* pName) const;
+	bool Busy() { return false; }
+
+	// Hub api
+	int DetectInstalledDevices();
+
+public: // Internal interface for peripherals
+	void SetCameraDevice(OpenScan* camera);
+	void SetMagnificationChangeNotifier(OpenScanMagnifier* magnifier,
+		MagChangeNotifierType notifier);
+
+	int GetMagnification(double* mag);
+	int OnMagnifierChanged();
+};
+
 
 class OpenScan : public CCameraBase<OpenScan>
 {
@@ -83,9 +123,52 @@ public: // Internal functions called from non-class context
 	void StoreSnapImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 
+public: // Internal interface
+	int GetMagnification(double *magnification);
+
 private:
 	int InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice);
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();
+};
+
+
+class OpenScanAO : public CSignalIOBase<OpenScanAO>
+{
+public:
+	OpenScanAO();
+	virtual ~OpenScanAO();
+
+	virtual int Initialize();
+	virtual int Shutdown();
+
+	virtual void GetName(char* name) const;
+	virtual bool Busy() { return false; }
+
+	virtual int SetGateOpen(bool open);
+	virtual int GetGateOpen(bool& open);
+	virtual int SetSignal(double volts);
+	virtual int GetSignal(double& /* volts */) { return DEVICE_UNSUPPORTED_COMMAND; }
+	virtual int GetLimits(double& minVolts, double& maxVolts);
+};
+
+
+
+// Magnifier for scaling pixel size with respect to resolution and zoom change
+class OpenScanMagnifier : public CMagnifierBase<OpenScanMagnifier>
+{
+public:
+	OpenScanMagnifier();
+	~OpenScanMagnifier() {};
+
+	int Shutdown();
+	void GetName(char* name) const;
+	bool Busy() { return false; }
+	int Initialize();
+
+	double GetMagnification();
+
+private:
+	int HandleMagnificationChange();
 };

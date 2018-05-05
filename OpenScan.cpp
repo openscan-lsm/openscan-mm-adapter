@@ -11,14 +11,22 @@
 #include <sstream>
 #include <utility>
 
-const char* const DEVICE_NAME_Camera = "OpenScan";
+// External names used by the rest of the system
+// to load particular device from the "OpenScan.dll" library
+const char* const DEVICE_NAME_Hub = "OScHub";
+const char* const DEVICE_NAME_Camera = "OSc-LSM";
+const char* const DEVICE_NAME_Ablation = "OSc-Ablation";
+const char* const DEVICE_NAME_Magnifier = "OSc-Magnifier";
 
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
 const char* const PROPERTY_Resolution = "Resolution";
+const char* const PROPERTY_Magnification = "Magnification";
 
 const char* const VALUE_Yes = "Yes";
 const char* const VALUE_No = "No";
+
+const char* NoHubError = "Parent Hub not defined.";
 
 enum
 {
@@ -26,18 +34,25 @@ enum
 };
 
 
-MODULE_API void
-InitializeModuleData()
+MODULE_API void InitializeModuleData()
 {
-	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "OpenScan Laser Scanning System");
+	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "Laser Scanning Microscope"); // scan and imaging
+	//RegisterDevice(DEVICE_NAME_Ablation, MM::SignalIODevice, "OpenScan Photo Ablation"); // DAQ analog out only
+	RegisterDevice(DEVICE_NAME_Magnifier, MM::MagnifierDevice, "Pixel Size Magnifier");
+	RegisterDevice(DEVICE_NAME_Hub, MM::HubDevice, "OpenScan Laser Scanning System");
 }
 
 
-MODULE_API MM::Device*
-CreateDevice(const char* name)
+MODULE_API MM::Device* CreateDevice(const char* deviceName)
 {
-	if (std::string(name) == DEVICE_NAME_Camera)
+	if (std::string(deviceName) == DEVICE_NAME_Camera)
 		return new OpenScan();
+	//else if (std::string(deviceName) == DEVICE_NAME_Ablation)
+	//	return new OpenScanAO();
+	else if (std::string(deviceName) == DEVICE_NAME_Magnifier)
+		return new OpenScanMagnifier();
+	else if (std::string(deviceName) == DEVICE_NAME_Hub)
+		return new OpenScanHub();
 	return 0;
 }
 
@@ -53,6 +68,9 @@ OpenScan::OpenScan() :
 	oscLSM_(0),
 	sequenceAcquisition_(0)
 {
+	// parent ID display
+	CreateHubIDProperty();
+
 	size_t count;
 	if (OSc_Devices_Get_Count(&count) != OSc_Error_OK)
 		return;
@@ -117,6 +135,16 @@ OpenScan::LogOpenScanMessage(const char *msg, OSc_Log_Level level)
 int
 OpenScan::Initialize()
 {
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+	{
+		char hubLabel[MM::MaxStrLength];
+		pHub->GetLabel(hubLabel);
+		SetParentID(hubLabel); // for backward comp.
+	}
+	else
+		LogMessage(NoHubError);
+
 	OSc_Error err = OSc_LSM_Create(&oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
@@ -188,6 +216,8 @@ OpenScan::Initialize()
 		return err;
 	err = AddAllowedValue(MM::g_Keyword_Binning, "1"); if (err != DEVICE_OK) return err;
 
+	pHub->SetCameraDevice(this);
+
 	return DEVICE_OK;
 }
 
@@ -199,6 +229,10 @@ OpenScan::Shutdown()
 		return DEVICE_OK;
 
 	StopSequenceAcquisition();
+
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+		pHub->SetCameraDevice(0);
 
 	OSc_LSM_Destroy(oscLSM_);
 	oscLSM_ = 0;
@@ -272,6 +306,10 @@ OpenScan::InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDe
 			if (err != OSc_Error_OK)
 				return err;
 		}
+
+		OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
+		if (hub)
+			hub->OnMagnifierChanged();
 	}
 
 	return DEVICE_OK;
@@ -426,6 +464,32 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 			}
 		}
 	}
+	return DEVICE_OK;
+}
+
+
+int OpenScan::GetMagnification(double *magnification)
+{
+	OSc_Error err;
+
+	// for now only consider scanner as pixel size is determined by scan waveform in LSM
+	OSc_Scanner* scanner;
+	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
+	if (err)
+		return err;
+	OSc_Device* scannerDevice;
+	err = OSc_Scanner_Get_Device(scanner, &scannerDevice);
+	if (err)
+		return err;
+
+	err = OSc_Device_Get_Magnification(scannerDevice, magnification);
+	if (err)
+		return err;
+	char msg[OSc_MAX_STR_LEN + 1];
+	snprintf(msg, OSc_MAX_STR_LEN, "Updated magnification is: %6.2f", *magnification);
+	LogMessage(msg, true);
+	//LogMessage(("Updated magnification: " + boost::lexical_cast<std::string>(*magnification) + "x").c_str(), true);
+
 	return DEVICE_OK;
 }
 
@@ -638,6 +702,11 @@ extern "C"
 int
 OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 {
+	// I cannot think of a reasonable situation 
+	// when IsCapturing is false while sequenceAcquisition_ is true.
+	// possibly it means previous live mode is not stopped properly
+	// anyway remove sequenceAcquisition_ from if ocndition for now
+	// TODO: need to fully test whether this change is valid?
 	if (IsCapturing())
 		return DEVICE_CAMERA_BUSY_ACQUIRING;
 
@@ -795,6 +864,10 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 			if (err)
 				return err;
 		}
+
+		OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
+		if (hub)
+			hub->OnMagnifierChanged();
 	}
 	return DEVICE_OK;
 }
@@ -879,6 +952,22 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		double value;
 		pProp->Get(value);
 		err = OSc_Setting_Set_Float64_Value(setting, value);
+		if (err)
+			return err;
+
+		// TEMPORARY: Special handling for Zoom change, which affect magnification.
+		// A proper interface should be added to OpenScan C API that allows us to
+		// subscribe to setting changes.
+		char name[1024];
+		err = OSc_Setting_Get_Name(setting, name);
+		if (err)
+			return err;
+		if (strcmp(name, "Zoom") == 0)
+		{
+			OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
+			if (hub)
+				hub->OnMagnifierChanged();
+		}
 	}
 	return DEVICE_OK;
 }
@@ -906,4 +995,157 @@ OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data
 		err = OSc_Setting_Set_Enum_Value(setting, value);
 	}
 	return DEVICE_OK;
+}
+
+
+int OpenScanHub::Initialize()
+{
+	return DEVICE_OK;
+}
+
+
+void OpenScanHub::GetName(char * pName) const
+{
+	CDeviceUtils::CopyLimitedString(pName, DEVICE_NAME_Hub);
+}
+
+
+int OpenScanHub::DetectInstalledDevices()
+{
+	MM::Device* camera = CreateDevice(DEVICE_NAME_Camera);
+	if (camera)
+		AddInstalledDevice(camera);
+	MM::Device* magnifier = CreateDevice(DEVICE_NAME_Magnifier);
+	if (magnifier)
+		AddInstalledDevice(magnifier);
+	return DEVICE_OK;
+}
+
+void OpenScanHub::SetCameraDevice(OpenScan* camera)
+{
+	openScanCamera_ = camera;
+}
+
+void OpenScanHub::SetMagnificationChangeNotifier(OpenScanMagnifier* magnifier,
+	MagChangeNotifierType notifier)
+{
+	magnifier_ = magnifier;
+	magChangeNotifier_ = notifier;
+}
+
+int OpenScanHub::GetMagnification(double* mag)
+{
+	if (!openScanCamera_)
+		return DEVICE_ERR;
+	return openScanCamera_->GetMagnification(mag);
+}
+
+int OpenScanHub::OnMagnifierChanged()
+{
+	if (!magChangeNotifier_ || !magnifier_) {
+		return DEVICE_OK;
+	}
+
+	int err = (magnifier_->*magChangeNotifier_)();
+	if (err != DEVICE_OK)
+		return err;
+
+	return DEVICE_OK;
+}
+
+
+////////////////////////////////////////////////////////////
+// TODO: SingleIO device to control a second pair of galvos
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+OpenScanAO::OpenScanAO()
+{
+}
+
+OpenScanAO::~OpenScanAO()
+{
+}
+
+int OpenScanAO::Initialize()
+{
+	return 0;
+}
+
+int OpenScanAO::Shutdown()
+{
+	return 0;
+}
+
+void OpenScanAO::GetName(char * name) const
+{
+}
+
+int OpenScanAO::SetGateOpen(bool open)
+{
+	return 0;
+}
+
+int OpenScanAO::GetGateOpen(bool & open)
+{
+	return 0;
+}
+
+int OpenScanAO::SetSignal(double volts)
+{
+	return 0;
+}
+
+int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
+{
+	return 0;
+}
+
+
+OpenScanMagnifier::OpenScanMagnifier()
+{
+}
+
+void OpenScanMagnifier::GetName(char* name) const
+{
+	CDeviceUtils::CopyLimitedString(name, DEVICE_NAME_Magnifier);
+}
+
+int OpenScanMagnifier::Initialize()
+{
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+	{
+		char hubLabel[MM::MaxStrLength];
+		pHub->GetLabel(hubLabel);
+		SetParentID(hubLabel); // for backward comp.
+	}
+	else
+		LogMessage(NoHubError);
+
+	pHub->SetMagnificationChangeNotifier(this, &OpenScanMagnifier::HandleMagnificationChange);
+
+	return DEVICE_OK;
+}
+
+int OpenScanMagnifier::Shutdown()
+{
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (pHub)
+		pHub->SetMagnificationChangeNotifier(0, 0);
+	return DEVICE_OK;
+}
+
+double OpenScanMagnifier::GetMagnification() {
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
+	if (!pHub)
+		return 0.0;
+
+	double mag;
+	int err = pHub->GetMagnification(&mag);
+	if (err != DEVICE_OK)
+		return 0.0;
+	return mag;
+}
+
+int OpenScanMagnifier::HandleMagnificationChange() {
+	return OnMagnifierChanged();
 }

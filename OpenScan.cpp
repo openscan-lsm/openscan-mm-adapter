@@ -161,10 +161,16 @@ OpenScan::Initialize()
 
 	OSc_Device* scannerDevice;
 	OSc_Device* detectorDevice;
+	std::string dummy = "Dummy Detector@Dummy detector device";
+	std::string unsel = "Unselected";
 	try
 	{
 		scannerDevice = scannerDevices_.at(scannerName);
-		detectorDevice = detectorDevices_.at(detectorName);
+		std::string tmp = std::string(detectorName);
+		if(unsel.compare(tmp) == 0)
+			detectorDevice = detectorDevices_.at(dummy);
+		else
+			detectorDevice = detectorDevices_.at(detectorName);
 	}
 	catch (const std::exception&)
 	{

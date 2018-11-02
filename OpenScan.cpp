@@ -71,6 +71,12 @@ OpenScan::OpenScan() :
 	// parent ID display
 	CreateHubIDProperty();
 
+	char *paths[] = {
+		".",
+		NULL
+	};
+	OSc_DeviceModule_Set_Search_Paths(paths);
+
 	size_t count;
 	if (OSc_Devices_Get_Count(&count) != OSc_Error_OK)
 		return;

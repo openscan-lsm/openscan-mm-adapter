@@ -184,6 +184,7 @@ OpenScan::Initialize()
 	}
 
 	OSc_Log_Set_Device_Log_Func(scannerDevice, LogOpenScan, this);
+	OSc_Log_Set_Device_Log_Func(detectorDevice, LogOpenScan, this);
 
 	err = OSc_Device_Open(scannerDevice, oscLSM_);
 	if (err != OSc_Error_OK)
@@ -554,6 +555,7 @@ OpenScan::SnapImage()
 	err = OSc_Acquisition_Arm(acq);
 	err = OSc_Acquisition_Start(acq);
 	err = OSc_Acquisition_Wait(acq);
+	err = OSc_Acquisition_Destroy(acq);
 
 	return DEVICE_OK;
 }

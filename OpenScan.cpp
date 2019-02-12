@@ -18,6 +18,7 @@ const char* const DEVICE_NAME_Camera = "OSc-LSM";
 const char* const DEVICE_NAME_Ablation = "OSc-Ablation";
 const char* const DEVICE_NAME_Magnifier = "OSc-Magnifier";
 
+const char* const PROPERTY_Clock = "Clock";
 const char* const PROPERTY_Scanner = "Scanner";
 const char* const PROPERTY_Detector = "Detector";
 const char* const PROPERTY_Resolution = "Resolution";
@@ -92,10 +93,20 @@ OpenScan::OpenScan() :
 			continue;
 
 		bool flag = false;
+		if (OSc_Device_Has_Clock(device, &flag) == OSc_Error_OK && flag)
+			clockDevices_[name] = device;
 		if (OSc_Device_Has_Scanner(device, &flag) == OSc_Error_OK && flag)
 			scannerDevices_[name] = device;
 		if (OSc_Device_Has_Detector(device, &flag) == OSc_Error_OK && flag)
 			detectorDevices_[name] = device;
+	}
+
+	CreateStringProperty(PROPERTY_Clock, "Unselected", false, 0, true);
+	AddAllowedValue(PROPERTY_Clock, "Unselected");
+	for (std::map<std::string, OSc_Device*>::iterator
+		it = clockDevices_.begin(), end = clockDevices_.end(); it != end; ++it)
+	{
+		AddAllowedValue(PROPERTY_Clock, it->first.c_str());
 	}
 
 	CreateStringProperty(PROPERTY_Scanner, "Unselected", false, 0, true);
@@ -155,8 +166,13 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
+	char clockName[MM::MaxStrLength + 1];
+	int stat = GetProperty(PROPERTY_Clock, clockName);
+	if (stat != DEVICE_OK)
+		return stat;
+
 	char scannerName[MM::MaxStrLength + 1];
-	int stat = GetProperty(PROPERTY_Scanner, scannerName);
+	stat = GetProperty(PROPERTY_Scanner, scannerName);
 	if (stat != DEVICE_OK)
 		return stat;
 
@@ -165,13 +181,16 @@ OpenScan::Initialize()
 	if (stat != DEVICE_OK)
 		return stat;
 
+	OSc_Device* clockDevice;
 	OSc_Device* scannerDevice;
 	OSc_Device* detectorDevice;
 	std::string dummy = "Dummy Detector@Dummy detector device";
 	std::string unsel = "Unselected";
 	try
 	{
+		clockDevice = clockDevices_.at(clockName);
 		scannerDevice = scannerDevices_.at(scannerName);
+
 		std::string tmp = std::string(detectorName);
 		if(unsel.compare(tmp) == 0)
 			detectorDevice = detectorDevices_.at(dummy);
@@ -183,18 +202,31 @@ OpenScan::Initialize()
 		return ERR_SCANNER_AND_DETECTOR_REQUIRED;
 	}
 
+	OSc_Log_Set_Device_Log_Func(clockDevice, LogOpenScan, this);
 	OSc_Log_Set_Device_Log_Func(scannerDevice, LogOpenScan, this);
 	OSc_Log_Set_Device_Log_Func(detectorDevice, LogOpenScan, this);
 
-	err = OSc_Device_Open(scannerDevice, oscLSM_);
+	err = OSc_Device_Open(clockDevice, oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
-	if (detectorDevice != scannerDevice)
+	if (scannerDevice != clockDevice)
+	{
+		err = OSc_Device_Open(scannerDevice, oscLSM_);
+		if (err != OSc_Error_OK)
+			return err;
+	}
+	if (detectorDevice != scannerDevice &&
+		detectorDevice != clockDevice)
 	{
 		err = OSc_Device_Open(detectorDevice, oscLSM_);
 		if (err != OSc_Error_OK)
 			return err;
 	}
+
+	OSc_Clock* clock;
+	err = OSc_Device_Get_Clock(clockDevice, &clock);
+	if (err != OSc_Error_OK)
+		return err;
 
 	OSc_Scanner* scanner;
 	err = OSc_Device_Get_Scanner(scannerDevice, &scanner);
@@ -203,7 +235,12 @@ OpenScan::Initialize()
 
 	OSc_Detector* detector;
 	err = OSc_Device_Get_Detector(detectorDevice, &detector);
+	if (err != OSc_Error_OK)
+		return err;
 
+	err = OSc_LSM_Set_Clock(oscLSM_, clock);
+	if (err != OSc_Error_OK)
+		return err;
 	err = OSc_LSM_Set_Scanner(oscLSM_, scanner);
 	if (err != OSc_Error_OK)
 		return err;
@@ -211,7 +248,7 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
-	err = InitializeResolution(scannerDevice, detectorDevice);
+	err = InitializeResolution(clockDevice, scannerDevice, detectorDevice);
 	if (err != DEVICE_OK)
 		return err;
 
@@ -255,14 +292,26 @@ OpenScan::Shutdown()
 
 
 int
-OpenScan::InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice)
+OpenScan::InitializeResolution(OSc_Device* clockDevice, OSc_Device* scannerDevice, OSc_Device* detectorDevice)
 {
-	std::set< std::pair<size_t, size_t> > scannerResolutions, detectorResolutions;
+	// TODO This logic for determining the intersection of resolutions allowed
+	// by clock, scanner, and detector should probably live in OpenScanLib.
+
+	std::set< std::pair<size_t, size_t> > clockResolutions, scannerResolutions, detectorResolutions;
 
 	size_t* widths;
 	size_t* heights;
 	size_t nrResolutions;
-	OSc_Error err = OSc_Device_Get_Allowed_Resolutions(scannerDevice,
+	OSc_Error err;
+
+	err = OSc_Device_Get_Allowed_Resolutions(clockDevice,
+		&widths, &heights, &nrResolutions);
+	if (err != OSc_Error_OK)
+		return err;
+	for (size_t i = 0; i < nrResolutions; ++i)
+		clockResolutions.insert(std::make_pair(widths[i], heights[i]));
+
+	err = OSc_Device_Get_Allowed_Resolutions(scannerDevice,
 		&widths, &heights, &nrResolutions);
 	if (err != OSc_Error_OK)
 		return err;
@@ -276,10 +325,14 @@ OpenScan::InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDe
 	for (size_t i = 0; i < nrResolutions; ++i)
 		detectorResolutions.insert(std::make_pair(widths[i], heights[i]));
 
-	std::vector< std::pair<size_t, size_t> > resolutions;
+	std::vector< std::pair<size_t, size_t> > sdResolutions, resolutions;
 	std::set_union(
 		scannerResolutions.begin(), scannerResolutions.end(),
 		detectorResolutions.begin(), detectorResolutions.end(),
+		std::back_inserter(sdResolutions));
+	std::set_union(
+		sdResolutions.begin(), sdResolutions.end(),
+		clockResolutions.begin(), clockResolutions.end(),
 		std::back_inserter(resolutions));
 	if (resolutions.empty())
 		return DEVICE_ERR; // TODO No compatible resolutions!
@@ -297,33 +350,21 @@ OpenScan::InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDe
 		AddAllowedValue(PROPERTY_Resolution, oss.str().c_str());
 	}
 
-	// Set a resolution that both the scanner and detector support.
-	// Default to the scanner's default if allowed, otherwise the first allowed.
-	if (scannerDevice != detectorDevice)
-	{
-		size_t width, height;
-		err = OSc_Device_Get_Resolution(scannerDevice, &width, &height);
-		if (detectorResolutions.count(std::make_pair(width, height)))
-		{
-			err = OSc_Device_Set_Resolution(detectorDevice, width, height);
-			if (err != OSc_Error_OK)
-				return err;
-		}
-		else
-		{
-			std::pair<size_t, size_t> widthHeight = resolutions_[0];
-			err = OSc_Device_Set_Resolution(scannerDevice, widthHeight.first, widthHeight.second);
-			if (err != OSc_Error_OK)
-				return err;
-			err = OSc_Device_Set_Resolution(detectorDevice, widthHeight.first, widthHeight.second);
-			if (err != OSc_Error_OK)
-				return err;
-		}
+	// Set an initial resolution that all devices support (the first available one).
+	std::pair<size_t, size_t> widthHeight = resolutions_[0];
+	err = OSc_Device_Set_Resolution(clockDevice, widthHeight.first, widthHeight.second);
+	if (err != OSc_Error_OK)
+		return err;
+	err = OSc_Device_Set_Resolution(scannerDevice, widthHeight.first, widthHeight.second);
+	if (err != OSc_Error_OK)
+		return err;
+	err = OSc_Device_Set_Resolution(detectorDevice, widthHeight.first, widthHeight.second);
+	if (err != OSc_Error_OK)
+		return err;
 
-		OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
-		if (hub)
-			hub->OnMagnifierChanged();
-	}
+	OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
+	if (hub)
+		hub->OnMagnifierChanged();
 
 	return DEVICE_OK;
 }
@@ -333,10 +374,14 @@ int
 OpenScan::GenerateProperties()
 {
 	OSc_Error err;
+	OSc_Clock* clock;
+	err = OSc_LSM_Get_Clock(oscLSM_, &clock);
 	OSc_Scanner* scanner;
 	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
 	OSc_Detector* detector;
 	err = OSc_LSM_Get_Detector(oscLSM_, &detector);
+	OSc_Device* clockDevice;
+	err = OSc_Clock_Get_Device(clock, &clockDevice);
 	OSc_Device* scannerDevice;
 	err = OSc_Scanner_Get_Device(scanner, &scannerDevice);
 	OSc_Device* detectorDevice;
@@ -344,10 +389,18 @@ OpenScan::GenerateProperties()
 
 	OSc_Setting** settings;
 	size_t count;
-	err = OSc_Device_Get_Settings(scannerDevice, &settings, &count);
+
+	err = OSc_Device_Get_Settings(clockDevice, &settings, &count);
 	err = GenerateProperties(settings, count);
 
-	if (detectorDevice != scannerDevice)
+	if (scannerDevice != clockDevice)
+	{
+		err = OSc_Device_Get_Settings(scannerDevice, &settings, &count);
+		err = GenerateProperties(settings, count);
+	}
+
+	if (detectorDevice != scannerDevice &&
+		detectorDevice != clockDevice)
 	{
 		err = OSc_Device_Get_Settings(detectorDevice, &settings, &count);
 		err = GenerateProperties(settings, count);
@@ -547,9 +600,6 @@ OpenScan::SnapImage()
 	err = OSc_Acquisition_Set_Data(acq, this);
 	err = OSc_Acquisition_Set_Number_Of_Frames(acq, 1);
 
-	// TODO Other trigger sources (or should this be fixed for a given LSM?)
-	err = OSc_Acquisition_Set_Trigger_Source(acq, OSc_Trigger_Source_Scanner);
-
 	err = OSc_Acquisition_Set_Frame_Callback(acq, SnapFrameCallback);
 
 	err = OSc_Acquisition_Arm(acq);
@@ -733,9 +783,6 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 	err = OSc_Acquisition_Set_Data(acq, this);
 	err = OSc_Acquisition_Set_Number_Of_Frames(acq, count);
 
-	// TODO Other trigger sources (or should this be fixed for a given LSM?)
-	err = OSc_Acquisition_Set_Trigger_Source(acq, OSc_Trigger_Source_Scanner);
-
 	err = OSc_Acquisition_Set_Frame_Callback(acq, SequenceFrameCallback);
 
 	err = OSc_Acquisition_Arm(acq);
@@ -816,13 +863,25 @@ OpenScan::IsCapturing()
 int
 OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
+	// TODO The logic for getting and setting resolution for all devices
+	// should be moved into OpenScanLib
+
 	OSc_Error err;
+
+	OSc_Clock* clock;
+	err = OSc_LSM_Get_Clock(oscLSM_, &clock);
+	if (err)
+		return err;
 	OSc_Scanner* scanner;
 	err = OSc_LSM_Get_Scanner(oscLSM_, &scanner);
 	if (err)
 		return err;
 	OSc_Detector* detector;
 	err = OSc_LSM_Get_Detector(oscLSM_, &detector);
+	if (err)
+		return err;
+	OSc_Device* clockDevice;
+	err = OSc_Clock_Get_Device(clock, &clockDevice);
 	if (err)
 		return err;
 	OSc_Device* scannerDevice;
@@ -836,25 +895,52 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 
 	if (eAct == MM::BeforeGet)
 	{
-		size_t width, height;
-		err = OSc_Device_Get_Resolution(scannerDevice, &width, &height);
+		size_t cWidth, cHeight;
+		err = OSc_Device_Get_Resolution(clockDevice, &cWidth, &cHeight);
 		if (err)
 			return err;
-		if (detectorDevice != scannerDevice)
+
+		size_t sWidth, sHeight;
+		if (scannerDevice == clockDevice)
 		{
-			size_t dWidth, dHeight;
+			sWidth = cWidth;
+			sHeight = cHeight;
+		}
+		else
+		{
+			err = OSc_Device_Get_Resolution(scannerDevice, &sWidth, &sHeight);
+			if (err)
+				return err;
+		}
+
+		size_t dWidth, dHeight;
+		if (detectorDevice == clockDevice)
+		{
+			dWidth = cWidth;
+			dHeight = cHeight;
+		}
+		else if (detectorDevice == scannerDevice)
+		{
+			dWidth = sWidth;
+			dHeight = sHeight;
+		}
+		else
+		{
 			err = OSc_Device_Get_Resolution(detectorDevice, &dWidth, &dHeight);
 			if (err)
 				return err;
-			if (dWidth != width || dHeight != height)
-			{
-				pProp->Set("");
-				return DEVICE_OK;
-			}
+		}
+
+		if (cWidth != sWidth || cWidth != dWidth ||
+			cHeight != sHeight || cHeight != dHeight)
+		{
+			// For some reason, resolutions aren't matched.
+			pProp->Set("");
+			return DEVICE_OK;
 		}
 
 		std::ostringstream oss;
-		oss << width << 'x' << height;
+		oss << cWidth << 'x' << cHeight;
 		pProp->Set(oss.str().c_str());
 	}
 	else if (eAct == MM::AfterSet)
@@ -869,10 +955,17 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 		std::istringstream hiss(s.substr(xPosition + 1));
 		hiss >> height;
 
-		err = OSc_Device_Set_Resolution(scannerDevice, width, height);
+		err = OSc_Device_Set_Resolution(clockDevice, width, height);
 		if (err)
 			return err;
-		if (detectorDevice != scannerDevice)
+		if (scannerDevice != clockDevice)
+		{
+			err = OSc_Device_Set_Resolution(scannerDevice, width, height);
+			if (err)
+				return err;
+		}
+		if (detectorDevice != scannerDevice &&
+			detectorDevice != clockDevice)
 		{
 			err = OSc_Device_Set_Resolution(detectorDevice, width, height);
 			if (err)

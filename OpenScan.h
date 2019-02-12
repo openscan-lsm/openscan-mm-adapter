@@ -62,6 +62,7 @@ private:
 	bool sequenceAcquisitionStopOnOverflow_;
 
 private: // Pre-init config
+	std::map<std::string, OSc_Device*> clockDevices_;
 	std::map<std::string, OSc_Device*> scannerDevices_;
 	std::map<std::string, OSc_Device*> detectorDevices_;
 
@@ -127,7 +128,7 @@ public: // Internal interface
 	int GetMagnification(double *magnification);
 
 private:
-	int InitializeResolution(OSc_Device* scannerDevice, OSc_Device* detectorDevice);
+	int InitializeResolution(OSc_Device* clockDevice, OSc_Device* scannerDevice, OSc_Device* detectorDevice);
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();

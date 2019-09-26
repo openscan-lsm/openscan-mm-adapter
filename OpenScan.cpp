@@ -838,7 +838,7 @@ OpenScan::SendSequenceImage(OSc_Acquisition*, uint32_t chan, void* pixels)
 		err = GetCoreCallback()->InsertImage(this, p, width, height, bytesPerPixel, md.Serialize().c_str(), false);
 		return err == DEVICE_OK;
 	}
-	else
+	else if (err != DEVICE_OK)
 	{
 		return false;
 	}

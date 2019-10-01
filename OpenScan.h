@@ -120,7 +120,7 @@ private: // Property handlers
 	int OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 
 public: // Internal functions called from non-class context
-	void LogOpenScanMessage(const char *msg, OSc_Log_Level level);
+	void LogOpenScanMessage(const char *msg, OSc_LogLevel level);
 	void StoreSnapImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 

@@ -135,27 +135,6 @@ private:
 };
 
 
-class OpenScanAO : public CSignalIOBase<OpenScanAO>
-{
-public:
-	OpenScanAO();
-	virtual ~OpenScanAO();
-
-	virtual int Initialize();
-	virtual int Shutdown();
-
-	virtual void GetName(char* name) const;
-	virtual bool Busy() { return false; }
-
-	virtual int SetGateOpen(bool open);
-	virtual int GetGateOpen(bool& open);
-	virtual int SetSignal(double volts);
-	virtual int GetSignal(double& /* volts */) { return DEVICE_UNSUPPORTED_COMMAND; }
-	virtual int GetLimits(double& minVolts, double& maxVolts);
-};
-
-
-
 // Magnifier for scaling pixel size with respect to resolution and zoom change
 class OpenScanMagnifier : public CMagnifierBase<OpenScanMagnifier>
 {

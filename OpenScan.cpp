@@ -15,7 +15,6 @@
 // to load particular device from the "OpenScan.dll" library
 const char* const DEVICE_NAME_Hub = "OScHub";
 const char* const DEVICE_NAME_Camera = "OSc-LSM";
-const char* const DEVICE_NAME_Ablation = "OSc-Ablation";
 const char* const DEVICE_NAME_Magnifier = "OSc-Magnifier";
 
 const char* const PROPERTY_Clock = "Clock";
@@ -46,9 +45,6 @@ MODULE_API void InitializeModuleData()
 		return;
 	}
 
-	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "Laser Scanning Microscope"); // scan and imaging
-	//RegisterDevice(DEVICE_NAME_Ablation, MM::SignalIODevice, "OpenScan Photo Ablation"); // DAQ analog out only
-	RegisterDevice(DEVICE_NAME_Magnifier, MM::MagnifierDevice, "Pixel Size Magnifier");
 	RegisterDevice(DEVICE_NAME_Hub, MM::HubDevice, "OpenScan Laser Scanning System");
 }
 
@@ -57,8 +53,6 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
 {
 	if (std::string(deviceName) == DEVICE_NAME_Camera)
 		return new OpenScan();
-	//else if (std::string(deviceName) == DEVICE_NAME_Ablation)
-	//	return new OpenScanAO();
 	else if (std::string(deviceName) == DEVICE_NAME_Magnifier)
 		return new OpenScanMagnifier();
 	else if (std::string(deviceName) == DEVICE_NAME_Hub)
@@ -78,9 +72,6 @@ OpenScan::OpenScan() :
 	oscLSM_(0),
 	sequenceAcquisition_(0)
 {
-	// parent ID display
-	CreateHubIDProperty();
-
 	char *paths[] = {
 		".",
 		NULL
@@ -161,16 +152,6 @@ OpenScan::LogOpenScanMessage(const char *msg, OSc_LogLevel level)
 int
 OpenScan::Initialize()
 {
-	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
-	if (pHub)
-	{
-		char hubLabel[MM::MaxStrLength];
-		pHub->GetLabel(hubLabel);
-		SetParentID(hubLabel); // for backward comp.
-	}
-	else
-		LogMessage(NoHubError);
-
 	OSc_Error err = OSc_LSM_Create(&oscLSM_);
 	if (err != OSc_Error_OK)
 		return err;
@@ -275,6 +256,7 @@ OpenScan::Initialize()
 		return err;
 	err = AddAllowedValue(MM::g_Keyword_Binning, "1"); if (err != DEVICE_OK) return err;
 
+	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
 	pHub->SetCameraDevice(this);
 
 	return DEVICE_OK;
@@ -563,7 +545,6 @@ int OpenScan::GetMagnification(double *magnification)
 	char msg[OSc_MAX_STR_LEN + 1];
 	snprintf(msg, OSc_MAX_STR_LEN, "Updated magnification is: %6.2f", *magnification);
 	LogMessage(msg, true);
-	//LogMessage(("Updated magnification: " + boost::lexical_cast<std::string>(*magnification) + "x").c_str(), true);
 
 	return DEVICE_OK;
 }
@@ -1170,52 +1151,6 @@ int OpenScanHub::OnMagnifierChanged()
 }
 
 
-////////////////////////////////////////////////////////////
-// TODO: SingleIO device to control a second pair of galvos
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-OpenScanAO::OpenScanAO()
-{
-}
-
-OpenScanAO::~OpenScanAO()
-{
-}
-
-int OpenScanAO::Initialize()
-{
-	return 0;
-}
-
-int OpenScanAO::Shutdown()
-{
-	return 0;
-}
-
-void OpenScanAO::GetName(char * name) const
-{
-}
-
-int OpenScanAO::SetGateOpen(bool open)
-{
-	return 0;
-}
-
-int OpenScanAO::GetGateOpen(bool & open)
-{
-	return 0;
-}
-
-int OpenScanAO::SetSignal(double volts)
-{
-	return 0;
-}
-
-int OpenScanAO::GetLimits(double & minVolts, double & maxVolts)
-{
-	return 0;
-}
-
-
 OpenScanMagnifier::OpenScanMagnifier()
 {
 }
@@ -1228,15 +1163,6 @@ void OpenScanMagnifier::GetName(char* name) const
 int OpenScanMagnifier::Initialize()
 {
 	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
-	if (pHub)
-	{
-		char hubLabel[MM::MaxStrLength];
-		pHub->GetLabel(hubLabel);
-		SetParentID(hubLabel); // for backward comp.
-	}
-	else
-		LogMessage(NoHubError);
-
 	pHub->SetMagnificationChangeNotifier(this, &OpenScanMagnifier::HandleMagnificationChange);
 
 	return DEVICE_OK;

@@ -37,6 +37,15 @@ enum
 
 MODULE_API void InitializeModuleData()
 {
+	if (!OSc_CheckVersion()) {
+		// Unfortunately we have no way of logging the error here.
+		// We could wait until the hub Initialize() is called, but that would
+		// require complicating the constructor code with conditionals.
+		// Instead, for now we create a dummy device to report the error.
+		RegisterDevice("Error", MM::GenericDevice, "Incompatible OpenScanLib version");
+		return;
+	}
+
 	RegisterDevice(DEVICE_NAME_Camera, MM::CameraDevice, "Laser Scanning Microscope"); // scan and imaging
 	//RegisterDevice(DEVICE_NAME_Ablation, MM::SignalIODevice, "OpenScan Photo Ablation"); // DAQ analog out only
 	RegisterDevice(DEVICE_NAME_Magnifier, MM::MagnifierDevice, "Pixel Size Magnifier");

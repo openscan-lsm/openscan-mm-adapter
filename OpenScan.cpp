@@ -213,28 +213,13 @@ OpenScan::Initialize()
 			return err;
 	}
 
-	OSc_Clock* clock;
-	err = OSc_Device_GetClock(clockDevice, &clock);
+	err = OSc_LSM_SetClockDevice(oscLSM_, clockDevice);
 	if (err != OSc_Error_OK)
 		return err;
-
-	OSc_Scanner* scanner;
-	err = OSc_Device_GetScanner(scannerDevice, &scanner);
+	err = OSc_LSM_SetScannerDevice(oscLSM_, scannerDevice);
 	if (err != OSc_Error_OK)
 		return err;
-
-	OSc_Detector* detector;
-	err = OSc_Device_GetDetector(detectorDevice, &detector);
-	if (err != OSc_Error_OK)
-		return err;
-
-	err = OSc_LSM_SetClock(oscLSM_, clock);
-	if (err != OSc_Error_OK)
-		return err;
-	err = OSc_LSM_SetScanner(oscLSM_, scanner);
-	if (err != OSc_Error_OK)
-		return err;
-	err = OSc_LSM_SetDetector(oscLSM_, detector);
+	err = OSc_LSM_SetDetectorDevice(oscLSM_, detectorDevice);
 	if (err != OSc_Error_OK)
 		return err;
 
@@ -364,23 +349,14 @@ OpenScan::InitializeResolution(OSc_Device* clockDevice, OSc_Device* scannerDevic
 int
 OpenScan::GenerateProperties()
 {
-	OSc_Error err;
-	OSc_Clock* clock;
-	err = OSc_LSM_GetClock(oscLSM_, &clock);
-	OSc_Scanner* scanner;
-	err = OSc_LSM_GetScanner(oscLSM_, &scanner);
-	OSc_Detector* detector;
-	err = OSc_LSM_GetDetector(oscLSM_, &detector);
-	OSc_Device* clockDevice;
-	err = OSc_Clock_GetDevice(clock, &clockDevice);
-	OSc_Device* scannerDevice;
-	err = OSc_Scanner_GetDevice(scanner, &scannerDevice);
-	OSc_Device* detectorDevice;
-	err = OSc_Detector_GetDevice(detector, &detectorDevice);
+	OSc_Device* clockDevice = OSc_LSM_GetClockDevice(oscLSM_);
+	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 
 	OSc_Setting** settings;
 	size_t count;
 
+	OSc_Error err;
 	err = OSc_Device_GetSettings(clockDevice, &settings, &count);
 	err = GenerateProperties(settings, count);
 
@@ -527,18 +503,9 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 
 int OpenScan::GetMagnification(double *magnification)
 {
+	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
+
 	OSc_Error err;
-
-	// for now only consider scanner as pixel size is determined by scan waveform in LSM
-	OSc_Scanner* scanner;
-	err = OSc_LSM_GetScanner(oscLSM_, &scanner);
-	if (err)
-		return err;
-	OSc_Device* scannerDevice;
-	err = OSc_Scanner_GetDevice(scanner, &scannerDevice);
-	if (err)
-		return err;
-
 	err = OSc_Device_GetMagnification(scannerDevice, magnification);
 	if (err)
 		return err;
@@ -648,10 +615,9 @@ OpenScan::GetImageBufferSize() const
 unsigned
 OpenScan::GetImageWidth() const
 {
-	OSc_Detector* detector;
-	OSc_LSM_GetDetector(oscLSM_, &detector);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t width, height;
-	OSc_Detector_GetImageSize(detector, &width, &height);
+	OSc_Device_GetDetectorImageSize(detectorDevice, &width, &height);
 	return width;
 }
 
@@ -659,10 +625,9 @@ OpenScan::GetImageWidth() const
 unsigned
 OpenScan::GetImageHeight() const
 {
-	OSc_Detector* detector;
-	OSc_LSM_GetDetector(oscLSM_, &detector);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t width, height;
-	OSc_Detector_GetImageSize(detector, &width, &height);
+	OSc_Device_GetDetectorImageSize(detectorDevice, &width, &height);
 	return height;
 }
 
@@ -670,10 +635,9 @@ OpenScan::GetImageHeight() const
 unsigned
 OpenScan::GetImageBytesPerPixel() const
 {
-	OSc_Detector* detector;
-	OSc_LSM_GetDetector(oscLSM_, &detector);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t bps;
-	OSc_Detector_GetBytesPerSample(detector, &bps);
+	OSc_Device_GetDetectorBytesPerSample(detectorDevice, &bps);
 	return bps;
 }
 
@@ -688,10 +652,9 @@ OpenScan::GetNumberOfComponents() const
 unsigned
 OpenScan::GetNumberOfChannels() const
 {
-	OSc_Detector* detector;
-	OSc_LSM_GetDetector(oscLSM_, &detector);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t nChannels;
-	OSc_Detector_GetNumberOfChannels(detector, &nChannels);
+	OSc_Device_GetDetectorNumberOfChannels(detectorDevice, &nChannels);
 	return nChannels;
 }
 
@@ -858,30 +821,9 @@ OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
 
 	OSc_Error err;
 
-	OSc_Clock* clock;
-	err = OSc_LSM_GetClock(oscLSM_, &clock);
-	if (err)
-		return err;
-	OSc_Scanner* scanner;
-	err = OSc_LSM_GetScanner(oscLSM_, &scanner);
-	if (err)
-		return err;
-	OSc_Detector* detector;
-	err = OSc_LSM_GetDetector(oscLSM_, &detector);
-	if (err)
-		return err;
-	OSc_Device* clockDevice;
-	err = OSc_Clock_GetDevice(clock, &clockDevice);
-	if (err)
-		return err;
-	OSc_Device* scannerDevice;
-	err = OSc_Scanner_GetDevice(scanner, &scannerDevice);
-	if (err)
-		return err;
-	OSc_Device* detectorDevice;
-	err = OSc_Detector_GetDevice(detector, &detectorDevice);
-	if (err)
-		return err;
+	OSc_Device* clockDevice = OSc_LSM_GetClockDevice(oscLSM_);
+	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
+	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 
 	if (eAct == MM::BeforeGet)
 	{

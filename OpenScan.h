@@ -55,7 +55,10 @@ class OpenScan : public CCameraBase<OpenScan>
 private:
 	OSc_LSM* oscLSM_;
 
-	std::vector< std::pair<size_t, size_t> > resolutions_;
+	// Some OpenScan "settings" that we map to Micro-Manager properties
+	// belong to the acquisition, rather than individual devices. We use an
+	// acquisition template to manage these.
+	OSc_AcqTemplate* acqTemplate_;
 
 	std::vector<void*> snappedImages_; // Memory manually managed
 	OSc_Acquisition* sequenceAcquisition_;
@@ -110,8 +113,6 @@ public:
 	virtual int IsExposureSequenceable(bool& f) const { f = false; return DEVICE_OK; }
 
 private: // Property handlers
-	int OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct);
-
 	std::vector<OSc_Setting*> settingIndex_;
 	int OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
@@ -128,7 +129,6 @@ public: // Internal interface
 	int GetMagnification(double *magnification);
 
 private:
-	int InitializeResolution(OSc_Device* clockDevice, OSc_Device* scannerDevice, OSc_Device* detectorDevice);
 	int GenerateProperties();
 	int GenerateProperties(OSc_Setting** settings, size_t count);
 	void DiscardPreviouslySnappedImages();

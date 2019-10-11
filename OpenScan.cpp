@@ -70,7 +70,9 @@ DeleteDevice(MM::Device* device)
 
 OpenScan::OpenScan() :
 	oscLSM_(0),
-	sequenceAcquisition_(0)
+	acqTemplate_(0),
+	sequenceAcquisition_(0),
+	sequenceAcquisitionStopOnOverflow_(false)
 {
 	char *paths[] = {
 		".",
@@ -149,6 +151,12 @@ OpenScan::LogOpenScanMessage(const char *msg, OSc_LogLevel level)
 }
 
 
+static void MagChangeCallback(OSc_Setting*, void* hub)
+{
+	static_cast<OpenScanHub*>(hub)->OnMagnifierChanged();
+}
+
+
 int
 OpenScan::Initialize()
 {
@@ -223,13 +231,20 @@ OpenScan::Initialize()
 	if (err != OSc_Error_OK)
 		return err;
 
-	err = InitializeResolution(clockDevice, scannerDevice, detectorDevice);
-	if (err != DEVICE_OK)
+	err = OSc_AcqTemplate_Create(&acqTemplate_, oscLSM_);
+	if (err != OSc_Error_OK)
 		return err;
 
 	err = GenerateProperties();
 	if (err != DEVICE_OK)
 		return err;
+
+	// Register callback for magnification change
+	OSc_Setting *magSetting;
+	err = OSc_AcqTemplate_GetMagnificationSetting(acqTemplate_, &magSetting);
+	if (err != DEVICE_OK)
+		return err;
+	OSc_Setting_SetInvalidateCallback(magSetting, MagChangeCallback, GetParentHub());
 
 	// Standard properties Exposure and Binning - not used for LSM
 	err = CreateFloatProperty(MM::g_Keyword_Exposure, 0.0, false);
@@ -268,87 +283,10 @@ OpenScan::Shutdown()
 
 
 int
-OpenScan::InitializeResolution(OSc_Device* clockDevice, OSc_Device* scannerDevice, OSc_Device* detectorDevice)
-{
-	// TODO This logic for determining the intersection of resolutions allowed
-	// by clock, scanner, and detector should probably live in OpenScanLib.
-
-	std::set< std::pair<size_t, size_t> > clockResolutions, scannerResolutions, detectorResolutions;
-
-	size_t* widths;
-	size_t* heights;
-	size_t nrResolutions;
-	OSc_Error err;
-
-	err = OSc_Device_GetAllowedResolutions(clockDevice,
-		&widths, &heights, &nrResolutions);
-	if (err != OSc_Error_OK)
-		return err;
-	for (size_t i = 0; i < nrResolutions; ++i)
-		clockResolutions.insert(std::make_pair(widths[i], heights[i]));
-
-	err = OSc_Device_GetAllowedResolutions(scannerDevice,
-		&widths, &heights, &nrResolutions);
-	if (err != OSc_Error_OK)
-		return err;
-	for (size_t i = 0; i < nrResolutions; ++i)
-		scannerResolutions.insert(std::make_pair(widths[i], heights[i]));
-
-	err = OSc_Device_GetAllowedResolutions(detectorDevice,
-		&widths, &heights, &nrResolutions);
-	if (err != OSc_Error_OK)
-		return err;
-	for (size_t i = 0; i < nrResolutions; ++i)
-		detectorResolutions.insert(std::make_pair(widths[i], heights[i]));
-
-	std::vector< std::pair<size_t, size_t> > sdResolutions, resolutions;
-	std::set_union(
-		scannerResolutions.begin(), scannerResolutions.end(),
-		detectorResolutions.begin(), detectorResolutions.end(),
-		std::back_inserter(sdResolutions));
-	std::set_union(
-		sdResolutions.begin(), sdResolutions.end(),
-		clockResolutions.begin(), clockResolutions.end(),
-		std::back_inserter(resolutions));
-	if (resolutions.empty())
-		return DEVICE_ERR; // TODO No compatible resolutions!
-	std::sort(resolutions.begin(), resolutions.end());
-	resolutions_ = resolutions;
-
-	CreateStringProperty(PROPERTY_Resolution, "", false,
-		new CPropertyAction(this, &OpenScan::OnResolution));
-
-	std::vector< std::pair<size_t, size_t> >::const_iterator it, end;
-	for (it = resolutions_.begin(), end = resolutions_.end(); it != end; ++it)
-	{
-		std::ostringstream oss;
-		oss << it->first << 'x' << it->second;
-		AddAllowedValue(PROPERTY_Resolution, oss.str().c_str());
-	}
-
-	// Set an initial resolution that all devices support (the first available one).
-	std::pair<size_t, size_t> widthHeight = resolutions_[0];
-	err = OSc_Device_SetResolution(clockDevice, widthHeight.first, widthHeight.second);
-	if (err != OSc_Error_OK)
-		return err;
-	err = OSc_Device_SetResolution(scannerDevice, widthHeight.first, widthHeight.second);
-	if (err != OSc_Error_OK)
-		return err;
-	err = OSc_Device_SetResolution(detectorDevice, widthHeight.first, widthHeight.second);
-	if (err != OSc_Error_OK)
-		return err;
-
-	OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
-	if (hub)
-		hub->OnMagnifierChanged();
-
-	return DEVICE_OK;
-}
-
-
-int
 OpenScan::GenerateProperties()
 {
+	// TODO Property names should be prefixed with device name
+
 	OSc_Device* clockDevice = OSc_LSM_GetClockDevice(oscLSM_);
 	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
 	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
@@ -372,6 +310,12 @@ OpenScan::GenerateProperties()
 		err = OSc_Device_GetSettings(detectorDevice, &settings, &count);
 		err = GenerateProperties(settings, count);
 	}
+
+	OSc_Setting *acqSettings[3];
+	OSc_AcqTemplate_GetPixelRateSetting(acqTemplate_, &acqSettings[0]);
+	OSc_AcqTemplate_GetResolutionSetting(acqTemplate_, &acqSettings[1]);
+	OSc_AcqTemplate_GetZoomFactorSetting(acqTemplate_, &acqSettings[2]);
+	err = GenerateProperties(acqSettings, 3);
 
 	return DEVICE_OK;
 }
@@ -503,17 +447,14 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 
 int OpenScan::GetMagnification(double *magnification)
 {
-	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
+	// We define magnification 1.0 as default resolution at Zoom 1.0.
 
 	OSc_Error err;
-	err = OSc_Device_GetMagnification(scannerDevice, magnification);
-	if (err)
+	OSc_Setting *magSetting;
+	if (OSc_CHECK_ERROR(err, OSc_AcqTemplate_GetMagnificationSetting(acqTemplate_, &magSetting))) {
 		return err;
-	char msg[OSc_MAX_STR_LEN + 1];
-	snprintf(msg, OSc_MAX_STR_LEN, "Updated magnification is: %6.2f", *magnification);
-	LogMessage(msg, true);
-
-	return DEVICE_OK;
+	}
+	return OSc_Setting_GetFloat64Value(magSetting, magnification);
 }
 
 
@@ -552,7 +493,7 @@ OpenScan::SnapImage()
 	DiscardPreviouslySnappedImages();
 
 	OSc_Acquisition* acq;
-	OSc_Error err = OSc_Acquisition_Create(&acq, oscLSM_);
+	OSc_Error err = OSc_Acquisition_Create(&acq, acqTemplate_);
 
 	err = OSc_Acquisition_SetData(acq, this);
 	err = OSc_Acquisition_SetNumberOfFrames(acq, 1);
@@ -615,9 +556,8 @@ OpenScan::GetImageBufferSize() const
 unsigned
 OpenScan::GetImageWidth() const
 {
-	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
-	uint32_t width, height;
-	OSc_Device_GetDetectorImageSize(detectorDevice, &width, &height);
+	uint32_t xOffset, yOffset, width, height;
+	OSc_AcqTemplate_GetROI(acqTemplate_, &xOffset, &yOffset, &width, &height);
 	return width;
 }
 
@@ -625,9 +565,8 @@ OpenScan::GetImageWidth() const
 unsigned
 OpenScan::GetImageHeight() const
 {
-	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
-	uint32_t width, height;
-	OSc_Device_GetDetectorImageSize(detectorDevice, &width, &height);
+	uint32_t xOffset, yOffset, width, height;
+	OSc_AcqTemplate_GetROI(acqTemplate_, &xOffset, &yOffset, &width, &height);
 	return height;
 }
 
@@ -635,9 +574,8 @@ OpenScan::GetImageHeight() const
 unsigned
 OpenScan::GetImageBytesPerPixel() const
 {
-	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t bps;
-	OSc_Device_GetDetectorBytesPerSample(detectorDevice, &bps);
+	OSc_AcqTemplate_GetBytesPerSample(acqTemplate_, &bps);
 	return bps;
 }
 
@@ -652,9 +590,8 @@ OpenScan::GetNumberOfComponents() const
 unsigned
 OpenScan::GetNumberOfChannels() const
 {
-	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
 	uint32_t nChannels;
-	OSc_Device_GetDetectorNumberOfChannels(detectorDevice, &nChannels);
+	OSc_AcqTemplate_GetNumberOfChannels(acqTemplate_, &nChannels);
 	return nChannels;
 }
 
@@ -676,31 +613,23 @@ OpenScan::GetBitDepth() const
 
 
 int
-OpenScan::SetROI(unsigned, unsigned, unsigned, unsigned)
+OpenScan::SetROI(unsigned x, unsigned y, unsigned width, unsigned height)
 {
-	if (IsCapturing())
-		return DEVICE_CAMERA_BUSY_ACQUIRING;
-
-	return DEVICE_OK;
+	return OSc_AcqTemplate_SetROI(acqTemplate_, x, y, width, height);
 }
 
 
 int
 OpenScan::GetROI(unsigned& x, unsigned& y, unsigned& xSize, unsigned& ySize)
 {
-	x = y = 0;
-	xSize = GetImageWidth();
-	ySize = GetImageHeight();
-	return DEVICE_OK;
+	return OSc_AcqTemplate_GetROI(acqTemplate_, &x, &y, &xSize, &ySize);
 }
 
 
 int
 OpenScan::ClearROI()
 {
-	if (IsCapturing())
-		return DEVICE_CAMERA_BUSY_ACQUIRING;
-
+	OSc_AcqTemplate_ResetROI(acqTemplate_);
 	return DEVICE_OK;
 }
 
@@ -731,7 +660,7 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 		return DEVICE_OK;
 
 	OSc_Acquisition* acq;
-	OSc_Error err = OSc_Acquisition_Create(&acq, oscLSM_);
+	OSc_Error err = OSc_Acquisition_Create(&acq, acqTemplate_);
 
 	err = OSc_Acquisition_SetData(acq, this);
 	err = OSc_Acquisition_SetNumberOfFrames(acq, count);
@@ -810,105 +739,6 @@ OpenScan::IsCapturing()
 	if (err != OSc_Error_OK)
 		return false;
 	return isRunning;
-}
-
-
-int
-OpenScan::OnResolution(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-	// TODO The logic for getting and setting resolution for all devices
-	// should be moved into OpenScanLib
-
-	OSc_Error err;
-
-	OSc_Device* clockDevice = OSc_LSM_GetClockDevice(oscLSM_);
-	OSc_Device* scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
-	OSc_Device* detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
-
-	if (eAct == MM::BeforeGet)
-	{
-		size_t cWidth, cHeight;
-		err = OSc_Device_GetResolution(clockDevice, &cWidth, &cHeight);
-		if (err)
-			return err;
-
-		size_t sWidth, sHeight;
-		if (scannerDevice == clockDevice)
-		{
-			sWidth = cWidth;
-			sHeight = cHeight;
-		}
-		else
-		{
-			err = OSc_Device_GetResolution(scannerDevice, &sWidth, &sHeight);
-			if (err)
-				return err;
-		}
-
-		size_t dWidth, dHeight;
-		if (detectorDevice == clockDevice)
-		{
-			dWidth = cWidth;
-			dHeight = cHeight;
-		}
-		else if (detectorDevice == scannerDevice)
-		{
-			dWidth = sWidth;
-			dHeight = sHeight;
-		}
-		else
-		{
-			err = OSc_Device_GetResolution(detectorDevice, &dWidth, &dHeight);
-			if (err)
-				return err;
-		}
-
-		if (cWidth != sWidth || cWidth != dWidth ||
-			cHeight != sHeight || cHeight != dHeight)
-		{
-			// For some reason, resolutions aren't matched.
-			pProp->Set("");
-			return DEVICE_OK;
-		}
-
-		std::ostringstream oss;
-		oss << cWidth << 'x' << cHeight;
-		pProp->Set(oss.str().c_str());
-	}
-	else if (eAct == MM::AfterSet)
-	{
-		std::string s;
-		pProp->Get(s);
-
-		size_t width, height;
-		std::string::size_type xPosition = s.find('x');
-		std::istringstream wiss(s.substr(0, xPosition));
-		wiss >> width;
-		std::istringstream hiss(s.substr(xPosition + 1));
-		hiss >> height;
-
-		err = OSc_Device_SetResolution(clockDevice, width, height);
-		if (err)
-			return err;
-		if (scannerDevice != clockDevice)
-		{
-			err = OSc_Device_SetResolution(scannerDevice, width, height);
-			if (err)
-				return err;
-		}
-		if (detectorDevice != scannerDevice &&
-			detectorDevice != clockDevice)
-		{
-			err = OSc_Device_SetResolution(detectorDevice, width, height);
-			if (err)
-				return err;
-		}
-
-		OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
-		if (hub)
-			hub->OnMagnifierChanged();
-	}
-	return DEVICE_OK;
 }
 
 
@@ -996,17 +826,11 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 
 		// TEMPORARY: Special handling for Zoom change, which affect magnification.
 		// A proper interface should be added to OpenScan C API that allows us to
-		// subscribe to setting changes.
+		// subscribe to resolutionSetting changes.
 		char name[1024];
 		err = OSc_Setting_GetName(setting, name);
 		if (err)
 			return err;
-		if (strcmp(name, "Zoom") == 0)
-		{
-			OpenScanHub* hub = static_cast<OpenScanHub*>(GetParentHub());
-			if (hub)
-				hub->OnMagnifierChanged();
-		}
 	}
 	return DEVICE_OK;
 }

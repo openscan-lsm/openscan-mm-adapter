@@ -663,13 +663,24 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 	OSc_Error err = OSc_Acquisition_Create(&acq, acqTemplate_);
 
 	err = OSc_Acquisition_SetData(acq, this);
+	if (err)
+		return err;
 	err = OSc_Acquisition_SetNumberOfFrames(acq, count);
+	if (err)
+		return err;
 
 	err = OSc_Acquisition_SetFrameCallback(acq, SequenceFrameCallback);
+	if (err)
+		return err;
 
 	err = OSc_Acquisition_Arm(acq);
+	if (err)
+		return err;
 	GetCoreCallback()->PrepareForAcq(this);
+
 	err = OSc_Acquisition_Start(acq);
+	if (err)
+		return err;
 
 	sequenceAcquisition_ = acq;
 	sequenceAcquisitionStopOnOverflow_ = stopOnOverflow;

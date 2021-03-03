@@ -16,12 +16,13 @@ class OpenScanMagnifier;
 class OpenScanHub : public HubBase<OpenScanHub>
 {
 public:
-	typedef int (OpenScanMagnifier::*MagChangeNotifierType)();
+	typedef int (OpenScanMagnifier::* MagChangeNotifierType)();
 
 private:
 	OpenScan* openScanCamera_;
 	OpenScanMagnifier* magnifier_;
 	MagChangeNotifierType magChangeNotifier_;
+
 
 public:
 	OpenScanHub() :
@@ -68,6 +69,8 @@ private: // Pre-init config
 	std::map<std::string, OSc_Device*> clockDevices_;
 	std::map<std::string, OSc_Device*> scannerDevices_;
 	std::map<std::string, OSc_Device*> detectorDevices_;
+
+	int nextAdHocErrorCode_;
 
 public:
 	OpenScan();
@@ -119,14 +122,15 @@ private: // Property handlers
 	int OnInt32Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
 	int OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data);
+	int AdHocErrorCode(OSc_RichError* richError);
 
 public: // Internal functions called from non-class context
-	void LogOpenScanMessage(const char *msg, OSc_LogLevel level);
+	void LogOpenScanMessage(const char* msg, OSc_LogLevel level);
 	void StoreSnapImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 	bool SendSequenceImage(OSc_Acquisition* acq, uint32_t chan, void* pixels);
 
 public: // Internal interface
-	int GetMagnification(double *magnification);
+	int GetMagnification(double* magnification);
 
 private:
 	int GenerateProperties();

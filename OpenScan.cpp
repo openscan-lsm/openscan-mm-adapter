@@ -570,18 +570,41 @@ OpenScan::SnapImage()
 
 	OSc_Acquisition* acq;
 	OSc_RichError* err = OSc_Acquisition_Create(&acq, acqTemplate_);
+	if (err)
+		return AdHocErrorCode(err);
 
 	err = OSc_Acquisition_SetData(acq, this);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_SetNumberOfFrames(acq, 1);
+	if (err)
+		goto error;
 
 	err = OSc_Acquisition_SetFrameCallback(acq, SnapFrameCallback);
+	if (err)
+		goto error;
 
 	err = OSc_Acquisition_Arm(acq);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_Start(acq);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_Wait(acq);
-	err = OSc_Acquisition_Destroy(acq);
+	if (err)
+		goto error;
+
+	OSc_Acquisition_Destroy(acq);
 
 	return DEVICE_OK;
+
+error:
+	int errCode = AdHocErrorCode(err);
+	OSc_Acquisition_Destroy(acq);
+	return errCode;
 }
 
 
@@ -950,6 +973,9 @@ OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data
 
 int OpenScan::AdHocErrorCode(OSc_RichError* richError)
 {
+	if (richError == OSc_OK) {
+		return DEVICE_OK;
+	}
 	int ret = nextAdHocErrorCode_++;
 	if (nextAdHocErrorCode_ > MAX_ADHOC_ERROR_CODE)
 		nextAdHocErrorCode_ = MIN_ADHOC_ERROR_CODE;

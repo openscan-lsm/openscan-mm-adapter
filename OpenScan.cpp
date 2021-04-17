@@ -979,12 +979,10 @@ int OpenScan::AdHocErrorCode(OSc_RichError* richError)
 	int ret = nextAdHocErrorCode_++;
 	if (nextAdHocErrorCode_ > MAX_ADHOC_ERROR_CODE)
 		nextAdHocErrorCode_ = MIN_ADHOC_ERROR_CODE;
-	char* msg = (char*)malloc(100);
-	sprintf(msg, "%s, %d", OSc_Error_GetMessage(richError), OSc_Error_GetCode(richError));
-	SetErrorText(ret, msg);
-	//SetErrorText(ret, OSc_Error_GetMessage(richError));
-	// consider domain??
-	// consider wrapped error??
+
+	char buffer[MM::MaxStrLength];
+	OSc_Error_FormatRecursive(richError, buffer, sizeof(buffer));
+	SetErrorText(ret, buffer);
 	OSc_Error_Destroy(richError);
 	return ret;
 }

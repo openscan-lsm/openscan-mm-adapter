@@ -28,6 +28,9 @@ const char* const VALUE_No = "No";
 
 const char* NoHubError = "Parent Hub not defined.";
 
+const int MIN_ADHOC_ERROR_CODE = 60001;
+const int MAX_ADHOC_ERROR_CODE = 70000;
+
 enum
 {
 	ERR_SCANNER_AND_DETECTOR_REQUIRED = 30000,
@@ -69,37 +72,38 @@ DeleteDevice(MM::Device* device)
 
 
 OpenScan::OpenScan() :
+	nextAdHocErrorCode_(MIN_ADHOC_ERROR_CODE),
 	oscLSM_(0),
 	acqTemplate_(0),
 	sequenceAcquisition_(0),
 	sequenceAcquisitionStopOnOverflow_(false)
 {
-	char *paths[] = {
+	char* paths[] = {
 		".",
 		NULL
 	};
 	OSc_SetDeviceModuleSearchPaths(paths);
 
 	size_t count;
-	if (OSc_GetNumberOfAvailableDevices(&count) != OSc_Error_OK)
+	if (OSc_GetNumberOfAvailableDevices(&count) != OSc_OK)
 		return;
-	OSc_Device **devices;
-	if (OSc_GetAllDevices(&devices, &count) != OSc_Error_OK)
+	OSc_Device** devices;
+	if (OSc_GetAllDevices(&devices, &count) != OSc_OK)
 		return;
 	for (size_t i = 0; i < count; ++i)
 	{
-		OSc_Device *device = devices[i];
-		const char *name = NULL;
-		if (OSc_Device_GetDisplayName(device, &name) != OSc_Error_OK ||
+		OSc_Device* device = devices[i];
+		const char* name = NULL;
+		if (OSc_Device_GetDisplayName(device, &name) != OSc_OK ||
 			!name || !name[0])
 			continue;
 
 		bool flag = false;
-		if (OSc_Device_HasClock(device, &flag) == OSc_Error_OK && flag)
+		if (OSc_Device_HasClock(device, &flag) == OSc_OK && flag)
 			clockDevices_[name] = device;
-		if (OSc_Device_HasScanner(device, &flag) == OSc_Error_OK && flag)
+		if (OSc_Device_HasScanner(device, &flag) == OSc_OK && flag)
 			scannerDevices_[name] = device;
-		if (OSc_Device_HasDetector(device, &flag) == OSc_Error_OK && flag)
+		if (OSc_Device_HasDetector(device, &flag) == OSc_OK && flag)
 			detectorDevices_[name] = device;
 	}
 
@@ -136,16 +140,16 @@ OpenScan::~OpenScan()
 
 extern "C"
 {
-	static void LogOpenScan(const char *msg, OSc_LogLevel level, void *data)
+	static void LogOpenScan(const char* msg, OSc_LogLevel level, void* data)
 	{
-		OpenScan *self = (OpenScan *)data;
+		OpenScan* self = (OpenScan*)data;
 		self->LogOpenScanMessage(msg, level);
 	}
 }
 
 
 void
-OpenScan::LogOpenScanMessage(const char *msg, OSc_LogLevel level)
+OpenScan::LogOpenScanMessage(const char* msg, OSc_LogLevel level)
 {
 	LogMessage(msg, level <= OSc_LogLevel_Info);
 }
@@ -160,9 +164,9 @@ static void MagChangeCallback(OSc_Setting*, void* hub)
 int
 OpenScan::Initialize()
 {
-	OSc_Error err = OSc_LSM_Create(&oscLSM_);
-	if (err != OSc_Error_OK)
-		return err;
+	OSc_RichError* err = OSc_LSM_Create(&oscLSM_);
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 
 	char clockName[MM::MaxStrLength + 1];
 	int stat = GetProperty(PROPERTY_Clock, clockName);
@@ -190,7 +194,7 @@ OpenScan::Initialize()
 		scannerDevice = scannerDevices_.at(scannerName);
 
 		std::string tmp = std::string(detectorName);
-		if(unsel.compare(tmp) == 0)
+		if (unsel.compare(tmp) == 0)
 			detectorDevice = detectorDevices_.at(dummy);
 		else
 			detectorDevice = detectorDevices_.at(detectorName);
@@ -205,56 +209,60 @@ OpenScan::Initialize()
 	OSc_Device_SetLogFunc(detectorDevice, LogOpenScan, this);
 
 	err = OSc_Device_Open(clockDevice, oscLSM_);
-	if (err != OSc_Error_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 	if (scannerDevice != clockDevice)
 	{
 		err = OSc_Device_Open(scannerDevice, oscLSM_);
-		if (err != OSc_Error_OK)
-			return err;
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
 	}
 	if (detectorDevice != scannerDevice &&
 		detectorDevice != clockDevice)
 	{
 		err = OSc_Device_Open(detectorDevice, oscLSM_);
-		if (err != OSc_Error_OK)
-			return err;
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
 	}
 
 	err = OSc_LSM_SetClockDevice(oscLSM_, clockDevice);
-	if (err != OSc_Error_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 	err = OSc_LSM_SetScannerDevice(oscLSM_, scannerDevice);
-	if (err != OSc_Error_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 	err = OSc_LSM_SetDetectorDevice(oscLSM_, detectorDevice);
-	if (err != OSc_Error_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 
 	err = OSc_AcqTemplate_Create(&acqTemplate_, oscLSM_);
-	if (err != OSc_Error_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 
-	err = GenerateProperties();
-	if (err != DEVICE_OK)
-		return err;
+	int errCode = GenerateProperties();
+	if (errCode != DEVICE_OK)
+		return errCode;
 
 	// Register callback for magnification change
-	OSc_Setting *magSetting;
+	OSc_Setting* magSetting;
 	err = OSc_AcqTemplate_GetMagnificationSetting(acqTemplate_, &magSetting);
-	if (err != DEVICE_OK)
-		return err;
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
 	OSc_Setting_SetInvalidateCallback(magSetting, MagChangeCallback, GetParentHub());
 
 	// Standard properties Exposure and Binning - not used for LSM
-	err = CreateFloatProperty(MM::g_Keyword_Exposure, 0.0, false);
-	if (err != DEVICE_OK)
-		return err;
-	err = AddAllowedValue(MM::g_Keyword_Exposure, "0.0000"); if (err != DEVICE_OK) return err;
-	err = CreateIntegerProperty(MM::g_Keyword_Binning, 1, false);
-	if (err != DEVICE_OK)
-		return err;
-	err = AddAllowedValue(MM::g_Keyword_Binning, "1"); if (err != DEVICE_OK) return err;
+	errCode = CreateFloatProperty(MM::g_Keyword_Exposure, 0.0, false);
+	if (errCode != DEVICE_OK)
+		return errCode;
+	errCode = AddAllowedValue(MM::g_Keyword_Exposure, "0.0000");
+	if (errCode != DEVICE_OK)
+		return errCode;
+	errCode = CreateIntegerProperty(MM::g_Keyword_Binning, 1, false);
+	if (errCode != DEVICE_OK)
+		return errCode;
+	errCode = AddAllowedValue(MM::g_Keyword_Binning, "1");
+	if (errCode != DEVICE_OK)
+		return errCode;
 
 	OpenScanHub* pHub = static_cast<OpenScanHub*>(GetParentHub());
 	pHub->SetCameraDevice(this);
@@ -294,28 +302,49 @@ OpenScan::GenerateProperties()
 	OSc_Setting** settings;
 	size_t count;
 
-	OSc_Error err;
+	OSc_RichError* err;
+	int errCode;
 	err = OSc_Device_GetSettings(clockDevice, &settings, &count);
-	err = GenerateProperties(settings, count);
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
+	errCode = GenerateProperties(settings, count);
+	if (errCode != DEVICE_OK)
+		return errCode;
 
 	if (scannerDevice != clockDevice)
 	{
 		err = OSc_Device_GetSettings(scannerDevice, &settings, &count);
-		err = GenerateProperties(settings, count);
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
+		errCode = GenerateProperties(settings, count);
+		if (errCode != DEVICE_OK)
+			return errCode;
 	}
 
 	if (detectorDevice != scannerDevice &&
 		detectorDevice != clockDevice)
 	{
 		err = OSc_Device_GetSettings(detectorDevice, &settings, &count);
-		err = GenerateProperties(settings, count);
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
+		errCode = GenerateProperties(settings, count);
+		if (errCode != DEVICE_OK)
+			return errCode;
 	}
 
-	OSc_Setting *acqSettings[3];
-	OSc_AcqTemplate_GetPixelRateSetting(acqTemplate_, &acqSettings[0]);
-	OSc_AcqTemplate_GetResolutionSetting(acqTemplate_, &acqSettings[1]);
-	OSc_AcqTemplate_GetZoomFactorSetting(acqTemplate_, &acqSettings[2]);
-	err = GenerateProperties(acqSettings, 3);
+	OSc_Setting* acqSettings[3];
+	err = OSc_AcqTemplate_GetPixelRateSetting(acqTemplate_, &acqSettings[0]);
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
+	err = OSc_AcqTemplate_GetResolutionSetting(acqTemplate_, &acqSettings[1]);
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
+	err = OSc_AcqTemplate_GetZoomFactorSetting(acqTemplate_, &acqSettings[2]);
+	if (err != OSc_OK)
+		return AdHocErrorCode(err);
+	errCode = GenerateProperties(acqSettings, 3);
+	if (errCode != DEVICE_OK)
+		return errCode;
 
 	return DEVICE_OK;
 }
@@ -324,7 +353,8 @@ OpenScan::GenerateProperties()
 int
 OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 {
-	OSc_Error err;
+	OSc_RichError* err;
+	int errCode;
 	for (size_t i = 0; i < count; ++i)
 	{
 		OSc_Setting* setting = settings[i];
@@ -334,127 +364,173 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 
 		char name[OSc_MAX_STR_LEN + 1];
 		err = OSc_Setting_GetName(setting, name);
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
 		OSc_ValueType valueType;
 		err = OSc_Setting_GetValueType(setting, &valueType);
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
 		bool writable;
 		err = OSc_Setting_IsWritable(setting, &writable);
+		if (err != OSc_OK)
+			return AdHocErrorCode(err);
 
 		switch (valueType)
 		{
-			case OSc_ValueType_String:
+		case OSc_ValueType_String:
+		{
+			char value[OSc_MAX_STR_LEN + 1];
+			err = OSc_Setting_GetStringValue(setting, value);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			CPropertyActionEx* handler = new CPropertyActionEx(this,
+				&OpenScan::OnStringProperty, index);
+			errCode = CreateStringProperty(name, value, !writable, handler);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			break;
+		}
+		case OSc_ValueType_Bool:
+		{
+			bool value;
+			err = OSc_Setting_GetBoolValue(setting, &value);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			CPropertyActionEx* handler = new CPropertyActionEx(this,
+				&OpenScan::OnBoolProperty, index);
+			errCode = CreateStringProperty(name, value ? VALUE_Yes : VALUE_No, !writable, handler);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			errCode = AddAllowedValue(name, VALUE_Yes);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			errCode = AddAllowedValue(name, VALUE_No);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			break;
+		}
+		case OSc_ValueType_Int32:
+		{
+			int32_t value;
+			err = OSc_Setting_GetInt32Value(setting, &value);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			CPropertyActionEx* handler = new CPropertyActionEx(this,
+				&OpenScan::OnInt32Property, index);
+			errCode = CreateIntegerProperty(name, value, !writable, handler);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			OSc_ValueConstraint constraint;
+			err = OSc_Setting_GetNumericConstraintType(setting, &constraint);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			switch (constraint)
 			{
-				char value[OSc_MAX_STR_LEN + 1];
-				err = OSc_Setting_GetStringValue(setting, value);
-				CPropertyActionEx* handler = new CPropertyActionEx(this,
-					&OpenScan::OnStringProperty, index);
-				err = CreateStringProperty(name, value, !writable, handler);
-				break;
-			}
-			case OSc_ValueType_Bool:
-			{
-				bool value;
-				err = OSc_Setting_GetBoolValue(setting, &value);
-				CPropertyActionEx* handler = new CPropertyActionEx(this,
-					&OpenScan::OnBoolProperty, index);
-				err = CreateStringProperty(name, value ? VALUE_Yes : VALUE_No, !writable, handler);
-				err = AddAllowedValue(name, VALUE_Yes);
-				err = AddAllowedValue(name, VALUE_No);
-				break;
-			}
-			case OSc_ValueType_Int32:
-			{
-				int32_t value;
-				err = OSc_Setting_GetInt32Value(setting, &value);
-				CPropertyActionEx* handler = new CPropertyActionEx(this,
-					&OpenScan::OnInt32Property, index);
-				err = CreateIntegerProperty(name, value, !writable, handler);
-				OSc_ValueConstraint constraint;
-				err = OSc_Setting_GetNumericConstraintType(setting, &constraint);
-				switch (constraint)
+			case OSc_ValueConstraint_Discrete:
+				int32_t* values;
+				size_t numValues;
+				err = OSc_Setting_GetInt32DiscreteValues(setting, &values, &numValues);
+				if (err != OSc_OK)
+					return AdHocErrorCode(err);
+				for (int j = 0; j < numValues; ++j)
 				{
-				case OSc_ValueConstraint_Discrete:
-					int32_t* values;
-					size_t numValues;
-					err = OSc_Setting_GetInt32DiscreteValues(setting, &values, &numValues);
-					for (int j = 0; j < numValues; ++j)
-					{
-						char valueStr[OSc_MAX_STR_LEN + 1];
-						snprintf(valueStr, OSc_MAX_STR_LEN, "%d", values[j]);
-						err = AddAllowedValue(name, valueStr);
-					}
-					break;
-				case OSc_ValueConstraint_Continuous:
-					int32_t min, max;
-					err = OSc_Setting_GetInt32ContinuousRange(setting, &min, &max);
-					SetPropertyLimits(name, min, max);
-					break;
+					char valueStr[OSc_MAX_STR_LEN + 1];
+					snprintf(valueStr, OSc_MAX_STR_LEN, "%d", values[j]);
+					errCode = AddAllowedValue(name, valueStr);
+					if (errCode != DEVICE_OK)
+						return errCode;
 				}
 				break;
-			}
-			case OSc_ValueType_Float64:
-			{
-				double value;
-				err = OSc_Setting_GetFloat64Value(setting, &value);
-				CPropertyActionEx* handler = new CPropertyActionEx(this,
-					&OpenScan::OnFloat64Property, index);
-				err = CreateFloatProperty(name, value, !writable, handler);
-				OSc_ValueConstraint constraint;
-				err = OSc_Setting_GetNumericConstraintType(setting, &constraint);
-				switch (constraint)
-				{
-				case OSc_ValueConstraint_Discrete:
-					double* values;
-					size_t numValues;
-					err = OSc_Setting_GetFloat64DiscreteValues(setting, &values, &numValues);
-					for (int j = 0; j < numValues; ++j)
-					{
-						char valueStr[OSc_MAX_STR_LEN + 1];
-						snprintf(valueStr, OSc_MAX_STR_LEN, "%0.4f", values[j]);
-						err = AddAllowedValue(name, valueStr);
-					}
-					break;
-				case OSc_ValueConstraint_Continuous:
-					double min, max;
-					err = OSc_Setting_GetFloat64ContinuousRange(setting, &min, &max);
-					SetPropertyLimits(name, min, max);
-					break;
-				}
+			case OSc_ValueConstraint_Continuous:
+				int32_t min, max;
+				err = OSc_Setting_GetInt32ContinuousRange(setting, &min, &max);
+				if (err != OSc_OK)
+					return AdHocErrorCode(err);
+				SetPropertyLimits(name, min, max);
 				break;
 			}
-			case OSc_ValueType_Enum:
+			break;
+		}
+		case OSc_ValueType_Float64:
+		{
+			double value;
+			err = OSc_Setting_GetFloat64Value(setting, &value);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			CPropertyActionEx* handler = new CPropertyActionEx(this,
+				&OpenScan::OnFloat64Property, index);
+			errCode = CreateFloatProperty(name, value, !writable, handler);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			OSc_ValueConstraint constraint;
+			err = OSc_Setting_GetNumericConstraintType(setting, &constraint);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			switch (constraint)
 			{
-				uint32_t value;
-				err = OSc_Setting_GetEnumValue(setting, &value);
-				char valueStr[OSc_MAX_STR_LEN + 1];
-				err = OSc_Setting_GetEnumNameForValue(setting, value, valueStr);
-				CPropertyActionEx* handler = new CPropertyActionEx(this,
-					&OpenScan::OnEnumProperty, index);
-				err = CreateStringProperty(name, valueStr, !writable, handler);
-				uint32_t numValues;
-				err = OSc_Setting_GetEnumNumValues(setting, &numValues);
-				for (uint32_t j = 0; j < numValues; ++j)
+			case OSc_ValueConstraint_Discrete:
+				double* values;
+				size_t numValues;
+				err = OSc_Setting_GetFloat64DiscreteValues(setting, &values, &numValues);
+				for (int j = 0; j < numValues; ++j)
 				{
-					err = OSc_Setting_GetEnumNameForValue(setting, j, valueStr);
-					err = AddAllowedValue(name, valueStr);
+					char valueStr[OSc_MAX_STR_LEN + 1];
+					snprintf(valueStr, OSc_MAX_STR_LEN, "%0.4f", values[j]);
+					errCode = AddAllowedValue(name, valueStr);
+					if (errCode != DEVICE_OK)
+						return errCode;
 				}
 				break;
+			case OSc_ValueConstraint_Continuous:
+				double min, max;
+				err = OSc_Setting_GetFloat64ContinuousRange(setting, &min, &max);
+				SetPropertyLimits(name, min, max);
+				break;
 			}
+			break;
+		}
+		case OSc_ValueType_Enum:
+		{
+			uint32_t value;
+			err = OSc_Setting_GetEnumValue(setting, &value);
+			char valueStr[OSc_MAX_STR_LEN + 1];
+			err = OSc_Setting_GetEnumNameForValue(setting, value, valueStr);
+			CPropertyActionEx* handler = new CPropertyActionEx(this,
+				&OpenScan::OnEnumProperty, index);
+			errCode = CreateStringProperty(name, valueStr, !writable, handler);
+			if (errCode != DEVICE_OK)
+				return errCode;
+			uint32_t numValues;
+			err = OSc_Setting_GetEnumNumValues(setting, &numValues);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+			for (uint32_t j = 0; j < numValues; ++j)
+			{
+				err = OSc_Setting_GetEnumNameForValue(setting, j, valueStr);
+				if (err != OSc_OK)
+					return AdHocErrorCode(err);
+				errCode = AddAllowedValue(name, valueStr);
+				if (errCode != DEVICE_OK)
+					return errCode;
+			}
+			break;
+		}
 		}
 	}
 	return DEVICE_OK;
 }
 
 
-int OpenScan::GetMagnification(double *magnification)
+int OpenScan::GetMagnification(double* magnification)
 {
 	// We define magnification 1.0 as default resolution at Zoom 1.0.
 
-	OSc_Error err;
-	OSc_Setting *magSetting;
+	OSc_RichError* err;
+	OSc_Setting* magSetting;
 	if (OSc_CHECK_ERROR(err, OSc_AcqTemplate_GetMagnificationSetting(acqTemplate_, &magSetting))) {
-		return err;
+		return AdHocErrorCode(err);
 	}
-	return OSc_Setting_GetFloat64Value(magSetting, magnification);
+	return AdHocErrorCode(OSc_Setting_GetFloat64Value(magSetting, magnification));
 }
 
 
@@ -475,7 +551,7 @@ OpenScan::GetName(char* name) const
 extern "C"
 {
 	static bool
-	SnapFrameCallback(OSc_Acquisition* acq, uint32_t chan, void* pixels, void* data)
+		SnapFrameCallback(OSc_Acquisition* acq, uint32_t chan, void* pixels, void* data)
 	{
 		OpenScan* self = static_cast<OpenScan*>(data);
 		self->StoreSnapImage(acq, chan, pixels);
@@ -493,19 +569,42 @@ OpenScan::SnapImage()
 	DiscardPreviouslySnappedImages();
 
 	OSc_Acquisition* acq;
-	OSc_Error err = OSc_Acquisition_Create(&acq, acqTemplate_);
+	OSc_RichError* err = OSc_Acquisition_Create(&acq, acqTemplate_);
+	if (err)
+		return AdHocErrorCode(err);
 
 	err = OSc_Acquisition_SetData(acq, this);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_SetNumberOfFrames(acq, 1);
+	if (err)
+		goto error;
 
 	err = OSc_Acquisition_SetFrameCallback(acq, SnapFrameCallback);
+	if (err)
+		goto error;
 
 	err = OSc_Acquisition_Arm(acq);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_Start(acq);
+	if (err)
+		goto error;
+
 	err = OSc_Acquisition_Wait(acq);
-	err = OSc_Acquisition_Destroy(acq);
+	if (err)
+		goto error;
+
+	OSc_Acquisition_Destroy(acq);
 
 	return DEVICE_OK;
+
+error:
+	int errCode = AdHocErrorCode(err);
+	OSc_Acquisition_Destroy(acq);
+	return errCode;
 }
 
 
@@ -615,14 +714,14 @@ OpenScan::GetBitDepth() const
 int
 OpenScan::SetROI(unsigned x, unsigned y, unsigned width, unsigned height)
 {
-	return OSc_AcqTemplate_SetROI(acqTemplate_, x, y, width, height);
+	return AdHocErrorCode(OSc_AcqTemplate_SetROI(acqTemplate_, x, y, width, height));
 }
 
 
 int
 OpenScan::GetROI(unsigned& x, unsigned& y, unsigned& xSize, unsigned& ySize)
 {
-	return OSc_AcqTemplate_GetROI(acqTemplate_, &x, &y, &xSize, &ySize);
+	return AdHocErrorCode(OSc_AcqTemplate_GetROI(acqTemplate_, &x, &y, &xSize, &ySize));
 }
 
 
@@ -637,7 +736,7 @@ OpenScan::ClearROI()
 extern "C"
 {
 	static bool
-	SequenceFrameCallback(OSc_Acquisition* acq, uint32_t chan, void* pixels, void* data)
+		SequenceFrameCallback(OSc_Acquisition* acq, uint32_t chan, void* pixels, void* data)
 	{
 		OpenScan* self = static_cast<OpenScan*>(data);
 		return self->SendSequenceImage(acq, chan, pixels);
@@ -660,27 +759,27 @@ OpenScan::StartSequenceAcquisition(long count, double, bool stopOnOverflow)
 		return DEVICE_OK;
 
 	OSc_Acquisition* acq;
-	OSc_Error err = OSc_Acquisition_Create(&acq, acqTemplate_);
+	OSc_RichError* err = OSc_Acquisition_Create(&acq, acqTemplate_);
 
 	err = OSc_Acquisition_SetData(acq, this);
 	if (err)
-		return err;
+		return AdHocErrorCode(err);
 	err = OSc_Acquisition_SetNumberOfFrames(acq, count);
 	if (err)
-		return err;
+		return AdHocErrorCode(err);
 
 	err = OSc_Acquisition_SetFrameCallback(acq, SequenceFrameCallback);
 	if (err)
-		return err;
+		return AdHocErrorCode(err);
 
 	err = OSc_Acquisition_Arm(acq);
 	if (err)
-		return err;
+		return AdHocErrorCode(err);
 	GetCoreCallback()->PrepareForAcq(this);
 
 	err = OSc_Acquisition_Start(acq);
 	if (err)
-		return err;
+		return AdHocErrorCode(err);
 
 	sequenceAcquisition_ = acq;
 	sequenceAcquisitionStopOnOverflow_ = stopOnOverflow;
@@ -698,7 +797,7 @@ OpenScan::StopSequenceAcquisition()
 	if (!IsCapturing() || !sequenceAcquisition_)
 		return DEVICE_OK;
 
-	OSc_Error err = OSc_Acquisition_Stop(sequenceAcquisition_);
+	OSc_RichError* err = OSc_Acquisition_Stop(sequenceAcquisition_);
 	GetCoreCallback()->AcqFinished(this, DEVICE_OK);
 	err = OSc_Acquisition_Destroy(sequenceAcquisition_);
 	sequenceAcquisition_ = 0;
@@ -746,8 +845,8 @@ OpenScan::IsCapturing()
 		return false;
 
 	bool isRunning;
-	OSc_Error err = OSc_LSM_IsRunningAcquisition(oscLSM_, &isRunning);
-	if (err != OSc_Error_OK)
+	OSc_RichError* err = OSc_LSM_IsRunningAcquisition(oscLSM_, &isRunning);
+	if (err != OSc_OK)
 		return false;
 	return isRunning;
 }
@@ -756,7 +855,7 @@ OpenScan::IsCapturing()
 int
 OpenScan::OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
 {
-	OSc_Error err;
+	OSc_RichError* err;
 	OSc_Setting* setting = settingIndex_[data];
 	if (eAct == MM::BeforeGet)
 	{
@@ -777,7 +876,7 @@ OpenScan::OnStringProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long da
 int
 OpenScan::OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
 {
-	OSc_Error err;
+	OSc_RichError* err;
 	OSc_Setting* setting = settingIndex_[data];
 	if (eAct == MM::BeforeGet)
 	{
@@ -798,7 +897,7 @@ OpenScan::OnBoolProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data
 int
 OpenScan::OnInt32Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
 {
-	OSc_Error err;
+	OSc_RichError* err;
 	OSc_Setting* setting = settingIndex_[data];
 	if (eAct == MM::BeforeGet)
 	{
@@ -819,7 +918,7 @@ OpenScan::OnInt32Property(MM::PropertyBase* pProp, MM::ActionType eAct, long dat
 int
 OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
 {
-	OSc_Error err;
+	OSc_RichError* err;
 	OSc_Setting* setting = settingIndex_[data];
 	if (eAct == MM::BeforeGet)
 	{
@@ -833,7 +932,7 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		pProp->Get(value);
 		err = OSc_Setting_SetFloat64Value(setting, value);
 		if (err)
-			return err;
+			return AdHocErrorCode(err);
 
 		// TEMPORARY: Special handling for Zoom change, which affect magnification.
 		// A proper interface should be added to OpenScan C API that allows us to
@@ -841,7 +940,7 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 		char name[1024];
 		err = OSc_Setting_GetName(setting, name);
 		if (err)
-			return err;
+			return AdHocErrorCode(err);
 	}
 	return DEVICE_OK;
 }
@@ -850,7 +949,7 @@ OpenScan::OnFloat64Property(MM::PropertyBase* pProp, MM::ActionType eAct, long d
 int
 OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data)
 {
-	OSc_Error err;
+	OSc_RichError* err;
 	OSc_Setting* setting = settingIndex_[data];
 	if (eAct == MM::BeforeGet)
 	{
@@ -872,13 +971,30 @@ OpenScan::OnEnumProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long data
 }
 
 
+int OpenScan::AdHocErrorCode(OSc_RichError* richError)
+{
+	if (richError == OSc_OK) {
+		return DEVICE_OK;
+	}
+	int ret = nextAdHocErrorCode_++;
+	if (nextAdHocErrorCode_ > MAX_ADHOC_ERROR_CODE)
+		nextAdHocErrorCode_ = MIN_ADHOC_ERROR_CODE;
+
+	char buffer[MM::MaxStrLength];
+	OSc_Error_FormatRecursive(richError, buffer, sizeof(buffer));
+	SetErrorText(ret, buffer);
+	OSc_Error_Destroy(richError);
+	return ret;
+}
+
+
 int OpenScanHub::Initialize()
 {
 	return DEVICE_OK;
 }
 
 
-void OpenScanHub::GetName(char * pName) const
+void OpenScanHub::GetName(char* pName) const
 {
 	CDeviceUtils::CopyLimitedString(pName, DEVICE_NAME_Hub);
 }

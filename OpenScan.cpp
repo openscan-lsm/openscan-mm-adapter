@@ -364,7 +364,6 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count, OSc_Device* d
 
 		const char* device_name;
 		char setting_name[OSc_MAX_STR_LEN + 1];
-		//const char** p = &device_name;
 
 		if (!device) {
 			device_name = "";

@@ -134,7 +134,7 @@ public: // Internal interface
 
 private:
 	int GenerateProperties();
-	int GenerateProperties(OSc_Setting** settings, size_t count);
+	int GenerateProperties(OSc_Setting** settings, size_t count, OSc_Device* device);
 	void DiscardPreviouslySnappedImages();
 };
 

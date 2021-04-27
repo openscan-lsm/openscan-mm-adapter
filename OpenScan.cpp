@@ -307,7 +307,7 @@ OpenScan::GenerateProperties()
 	err = OSc_Device_GetSettings(clockDevice, &settings, &count);
 	if (err != OSc_OK)
 		return AdHocErrorCode(err);
-	errCode = GenerateProperties(settings, count);
+	errCode = GenerateProperties(settings, count, clockDevice);
 	if (errCode != DEVICE_OK)
 		return errCode;
 
@@ -316,7 +316,7 @@ OpenScan::GenerateProperties()
 		err = OSc_Device_GetSettings(scannerDevice, &settings, &count);
 		if (err != OSc_OK)
 			return AdHocErrorCode(err);
-		errCode = GenerateProperties(settings, count);
+		errCode = GenerateProperties(settings, count, scannerDevice);
 		if (errCode != DEVICE_OK)
 			return errCode;
 	}
@@ -327,7 +327,7 @@ OpenScan::GenerateProperties()
 		err = OSc_Device_GetSettings(detectorDevice, &settings, &count);
 		if (err != OSc_OK)
 			return AdHocErrorCode(err);
-		errCode = GenerateProperties(settings, count);
+		errCode = GenerateProperties(settings, count, detectorDevice);
 		if (errCode != DEVICE_OK)
 			return errCode;
 	}
@@ -342,7 +342,7 @@ OpenScan::GenerateProperties()
 	err = OSc_AcqTemplate_GetZoomFactorSetting(acqTemplate_, &acqSettings[2]);
 	if (err != OSc_OK)
 		return AdHocErrorCode(err);
-	errCode = GenerateProperties(acqSettings, 3);
+	errCode = GenerateProperties(acqSettings, 3, NULL);
 	if (errCode != DEVICE_OK)
 		return errCode;
 
@@ -351,7 +351,7 @@ OpenScan::GenerateProperties()
 
 
 int
-OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
+OpenScan::GenerateProperties(OSc_Setting** settings, size_t count, OSc_Device* device)
 {
 	OSc_RichError* err;
 	int errCode;
@@ -362,10 +362,25 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count)
 		long index = static_cast<long>(settingIndex_.size());
 		settingIndex_.push_back(setting);
 
-		char name[OSc_MAX_STR_LEN + 1];
-		err = OSc_Setting_GetName(setting, name);
+		const char* device_name;
+		char setting_name[OSc_MAX_STR_LEN + 1];
+
+		if (!device) {
+			device_name = "LSM";
+		}
+		else {
+			err = OSc_Device_GetName(device, &device_name);
+			if (err != OSc_OK)
+				return AdHocErrorCode(err);
+		}
+
+		err = OSc_Setting_GetName(setting, setting_name);
 		if (err != OSc_OK)
 			return AdHocErrorCode(err);
+
+		char name[OSc_MAX_STR_LEN + 1];
+		snprintf(name, OSc_MAX_STR_LEN + 1, "%s-%s", device_name, setting_name);
+
 		OSc_ValueType valueType;
 		err = OSc_Setting_GetValueType(setting, &valueType);
 		if (err != OSc_OK)

@@ -366,7 +366,7 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count, OSc_Device* d
 		char setting_name[OSc_MAX_STR_LEN + 1];
 
 		if (!device) {
-			device_name = "";
+			device_name = "LSM";
 		}
 		else {
 			err = OSc_Device_GetName(device, &device_name);
@@ -379,10 +379,7 @@ OpenScan::GenerateProperties(OSc_Setting** settings, size_t count, OSc_Device* d
 			return AdHocErrorCode(err);
 
 		char name[OSc_MAX_STR_LEN + 1];
-		memset(name, 0, OSc_MAX_STR_LEN + 1);
-		strncpy(name, device_name, strlen(device_name));
-		strcat(name, "-");
-		strcat(name, setting_name);
+		snprintf(name, OSc_MAX_STR_LEN + 1, "%s-%s", device_name, setting_name);
 
 		OSc_ValueType valueType;
 		err = OSc_Setting_GetValueType(setting, &valueType);

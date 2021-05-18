@@ -36,6 +36,12 @@ Finally, build openscan-mm-adapter. The build should produce
 `mmgr_dal_OpenScan.dll`.
 
 
+Code of Conduct
+---------------
+
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/openscan-lsm/OpenScan/blob/main/CODE_OF_CONDUCT.md)
+
+
 Historical
 ----------
 

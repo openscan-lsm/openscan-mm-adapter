@@ -1,49 +1,36 @@
-Micro-Manager device adapter for OpenScan
-=========================================
+# Micro-Manager device adapter for OpenScan
 
 This is a Micro-Manager device adapter that presents an OpenScan-based laser
 scanning microscope to Micro-Manager as a camera.
 
-
-Building
---------
+## How to build
 
 This device adapter is currently Windows-only and requires Visual Studio (2019)
-to build.
+or later to build.
 
-This project depends on Micro-Manager's
-[mmCoreAndDevices](https://github.com/micro-manager/mmCoreAndDevices) and
-OpenScanLib. Clone these two repositories and place them under the same parent
-directory as this repository. Headers and build products from those projects
-are referenced using relative paths.
+[Meson](https://github.com/mesonbuild/meson/releases) is used for build; make
+sure `meson` and `ninja` are on the `PATH`.
 
-OpenScanLib (in particular, OpenScanDeviceLib) should be built using the same
-Platform and Configuration (and compiler version).
+Dependencies (OpenScanLib and MMDevice) are automatically fetched and built by
+Meson.
 
-Of the projects in mmCoreAndDevices, only `MMDevice-SharedRuntime` is needed.
-First set its Platform Toolset (in Configuration Properties > General) to
-"Visual Studio 2019 (v142)". Make sure to do this with "All Configurations" and
-"All Platforms" selected in the Property Pages. Then build
-`MMDevice-SharedRuntime` for the desired platforms and configurations (I
-usually build for x64 Debug and x64 Release). Configuration and compiler
-version must match with openscan-mm-adapter because MMDevice is a static
-library.
+It is best to build in the Developer PowerShell for VS 2019 (or later), which
+can be started from the Start Menu (hint: type 'developer powershell' into the
+Start Menu to search).
 
-This version assumes that the Micro-Manager device interface is at
-`../mmCoreAndDevices/MMDevice`.
+```pwsh
+cd path\to\openscan-mm-adapter
+meson setup builddir --buildtype release
+meson compile -C builddir
+```
 
-Finally, build openscan-mm-adapter. The build should produce
-`mmgr_dal_OpenScan.dll`.
+The build should produce `mmgr_dal_OpenScan.dll` in `builddir`.
 
-
-Code of Conduct
----------------
+## Code of Conduct
 
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/openscan-lsm/OpenScan/blob/main/CODE_OF_CONDUCT.md)
 
-
-Historical
-----------
+## Historical
 
 This code (including the git history prior to this README being added) was
 extracted from the LOCI internal 'mm-openscan' repository.

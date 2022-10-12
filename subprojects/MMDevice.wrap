@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/micro-manager/mmCoreAndDevices.git
+revision = 3aac3411e38fc22883a99946d291822e6b3a6114
+depth = 1
+patch_directory = MMDevice
+
+[provide]
+dependency_names = MMDevice

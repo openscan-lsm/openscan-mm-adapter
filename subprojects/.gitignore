@@ -1,0 +1,6 @@
+*
+!/.gitignore
+!/packagefiles
+!/packagefiles/**
+!/MMDevice.wrap
+!/OpenScanLib.wrap

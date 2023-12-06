@@ -1,6 +1,6 @@
 [wrap-git]
 url = https://github.com/openscan-lsm/OpenScanLib.git
-revision = bb1cabc12259ef787ae8b4e8960bba97a2ccc5ee
+revision = 798f429dbf907c424ec3f5b5d6fdd43d101e1b4f
 depth = 1
 
 [provide]

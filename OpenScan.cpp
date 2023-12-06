@@ -2,10 +2,9 @@
 
 #include "ModuleInterface.h"
 
-#include <stdio.h>
-#include <string.h>
-
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <set>
 #include <sstream>
@@ -19,28 +18,27 @@ const char *const DEVICE_NAME_Magnifier = "OSc-Magnifier";
 
 const char *const PROPERTY_Clock = "Clock";
 const char *const PROPERTY_Scanner = "Scanner";
-const char *const PROPERTY_Detector = "Detector";
+const char *const PROPERTY_Detector_Prefix = "Detector-";
+const char *const PROPERTY_EnableDetector_Prefix = "LSM-EnableDetector-";
 const char *const PROPERTY_Resolution = "Resolution";
 const char *const PROPERTY_Magnification = "Magnification";
 
 const char *const VALUE_Yes = "Yes";
 const char *const VALUE_No = "No";
 
-const char *NoHubError = "Parent Hub not defined.";
+const char *const VALUE_Unselected = "Unselected";
+
+const std::size_t MAX_DETECTOR_DEVICES = 4;
 
 const int MIN_ADHOC_ERROR_CODE = 60001;
 const int MAX_ADHOC_ERROR_CODE = 70000;
-
-enum {
-    ERR_SCANNER_AND_DETECTOR_REQUIRED = 30000,
-};
 
 MODULE_API void InitializeModuleData() {
     if (!OSc_CheckVersion()) {
         // Unfortunately we have no way of logging the error here.
         // We could wait until the hub Initialize() is called, but that would
         // require complicating the constructor code with conditionals.
-        // Instead, for now we create a dummy device to report the error.
+        // Instead, for now we create an empty device to report the error.
         RegisterDevice("Error", MM::GenericDevice,
                        "Incompatible OpenScanLib version");
         return;
@@ -65,7 +63,7 @@ MODULE_API void DeleteDevice(MM::Device *device) { delete device; }
 OpenScan::OpenScan()
     : nextAdHocErrorCode_(MIN_ADHOC_ERROR_CODE), oscLSM_(0), acqTemplate_(0),
       sequenceAcquisition_(0), sequenceAcquisitionStopOnOverflow_(false) {
-    char *paths[] = {".", NULL};
+    const char *paths[] = {".", NULL};
     OSc_SetDeviceModuleSearchPaths(paths);
 
     size_t count;
@@ -90,31 +88,27 @@ OpenScan::OpenScan()
             detectorDevices_[name] = device;
     }
 
-    CreateStringProperty(PROPERTY_Clock, "Unselected", false, 0, true);
-    AddAllowedValue(PROPERTY_Clock, "Unselected");
-    for (std::map<std::string, OSc_Device *>::iterator
-             it = clockDevices_.begin(),
-             end = clockDevices_.end();
-         it != end; ++it) {
-        AddAllowedValue(PROPERTY_Clock, it->first.c_str());
+    CreateStringProperty(PROPERTY_Clock, VALUE_Unselected, false, 0, true);
+    AddAllowedValue(PROPERTY_Clock, VALUE_Unselected);
+    for (const auto &clk : clockDevices_) {
+        AddAllowedValue(PROPERTY_Clock, clk.first.c_str());
     }
 
-    CreateStringProperty(PROPERTY_Scanner, "Unselected", false, 0, true);
-    AddAllowedValue(PROPERTY_Scanner, "Unselected");
-    for (std::map<std::string, OSc_Device *>::iterator
-             it = scannerDevices_.begin(),
-             end = scannerDevices_.end();
-         it != end; ++it) {
-        AddAllowedValue(PROPERTY_Scanner, it->first.c_str());
+    CreateStringProperty(PROPERTY_Scanner, VALUE_Unselected, false, 0, true);
+    AddAllowedValue(PROPERTY_Scanner, VALUE_Unselected);
+    for (const auto &scn : scannerDevices_) {
+        AddAllowedValue(PROPERTY_Scanner, scn.first.c_str());
     }
 
-    CreateStringProperty(PROPERTY_Detector, "Unselected", false, 0, true);
-    AddAllowedValue(PROPERTY_Detector, "Unselected");
-    for (std::map<std::string, OSc_Device *>::iterator
-             it = detectorDevices_.begin(),
-             end = detectorDevices_.end();
-         it != end; ++it) {
-        AddAllowedValue(PROPERTY_Detector, it->first.c_str());
+    for (std::size_t i = 0; i < MAX_DETECTOR_DEVICES; ++i) {
+        const std::string propName =
+            PROPERTY_Detector_Prefix + std::to_string(i);
+        CreateStringProperty(propName.c_str(), VALUE_Unselected, false, 0,
+                             true);
+        AddAllowedValue(propName.c_str(), VALUE_Unselected);
+        for (const auto &det : detectorDevices_) {
+            AddAllowedValue(propName.c_str(), det.first.c_str());
+        }
     }
 }
 
@@ -150,32 +144,42 @@ int OpenScan::Initialize() {
     if (stat != DEVICE_OK)
         return stat;
 
-    char detectorName[MM::MaxStrLength + 1];
-    stat = GetProperty(PROPERTY_Detector, detectorName);
-    if (stat != DEVICE_OK)
-        return stat;
+    const std::string unsel = VALUE_Unselected;
 
-    OSc_Device *clockDevice;
-    OSc_Device *scannerDevice;
-    OSc_Device *detectorDevice;
-    std::string dummy = "Dummy Detector@Dummy detector device";
-    std::string unsel = "Unselected";
-    try {
-        clockDevice = clockDevices_.at(clockName);
-        scannerDevice = scannerDevices_.at(scannerName);
+    std::vector<std::string> detectorNames;
+    for (std::size_t i = 0; i < MAX_DETECTOR_DEVICES; ++i) {
+        char detNam[MM::MaxStrLength + 1];
+        stat = GetProperty(
+            (PROPERTY_Detector_Prefix + std::to_string(i)).c_str(), detNam);
+        if (stat != DEVICE_OK)
+            return stat;
+        if (detNam == unsel)
+            continue;
+        for (const auto &nam : detectorNames) {
+            if (nam == detNam) {
+                return AdHocErrorCode(
+                    "The same detector device may not be added twice");
+            }
+        }
+        detectorNames.push_back(detNam);
+    }
 
-        std::string tmp = std::string(detectorName);
-        if (unsel.compare(tmp) == 0)
-            detectorDevice = detectorDevices_.at(dummy);
-        else
-            detectorDevice = detectorDevices_.at(detectorName);
-    } catch (const std::exception &) {
-        return ERR_SCANNER_AND_DETECTOR_REQUIRED;
+    if (clockName == unsel)
+        return AdHocErrorCode("Clock device must be selected");
+    OSc_Device *clockDevice = clockDevices_.at(clockName);
+    if (scannerName == unsel)
+        return AdHocErrorCode("Scanner device must be selected");
+    OSc_Device *scannerDevice = scannerDevices_.at(scannerName);
+    std::vector<OSc_Device *> detectorDevices;
+    for (const auto &detNam : detectorNames) {
+        detectorDevices.push_back(detectorDevices_.at(detNam));
     }
 
     OSc_Device_SetLogFunc(clockDevice, LogOpenScan, this);
     OSc_Device_SetLogFunc(scannerDevice, LogOpenScan, this);
-    OSc_Device_SetLogFunc(detectorDevice, LogOpenScan, this);
+    for (OSc_Device *det : detectorDevices) {
+        OSc_Device_SetLogFunc(det, LogOpenScan, this);
+    }
 
     err = OSc_Device_Open(clockDevice, oscLSM_);
     if (err != OSc_OK)
@@ -185,10 +189,12 @@ int OpenScan::Initialize() {
         if (err != OSc_OK)
             return AdHocErrorCode(err);
     }
-    if (detectorDevice != scannerDevice && detectorDevice != clockDevice) {
-        err = OSc_Device_Open(detectorDevice, oscLSM_);
-        if (err != OSc_OK)
-            return AdHocErrorCode(err);
+    for (OSc_Device *det : detectorDevices) {
+        if (det != scannerDevice && det != clockDevice) {
+            err = OSc_Device_Open(det, oscLSM_);
+            if (err != OSc_OK)
+                return AdHocErrorCode(err);
+        }
     }
 
     err = OSc_LSM_SetClockDevice(oscLSM_, clockDevice);
@@ -197,9 +203,11 @@ int OpenScan::Initialize() {
     err = OSc_LSM_SetScannerDevice(oscLSM_, scannerDevice);
     if (err != OSc_OK)
         return AdHocErrorCode(err);
-    err = OSc_LSM_SetDetectorDevice(oscLSM_, detectorDevice);
-    if (err != OSc_OK)
-        return AdHocErrorCode(err);
+    for (OSc_Device *det : detectorDevices) {
+        err = OSc_LSM_AddDetectorDevice(oscLSM_, det);
+        if (err != OSc_OK)
+            return AdHocErrorCode(err);
+    }
 
     err = OSc_AcqTemplate_Create(&acqTemplate_, oscLSM_);
     if (err != OSc_OK)
@@ -254,11 +262,13 @@ int OpenScan::Shutdown() {
 }
 
 int OpenScan::GenerateProperties() {
-    // TODO Property names should be prefixed with device name
-
     OSc_Device *clockDevice = OSc_LSM_GetClockDevice(oscLSM_);
     OSc_Device *scannerDevice = OSc_LSM_GetScannerDevice(oscLSM_);
-    OSc_Device *detectorDevice = OSc_LSM_GetDetectorDevice(oscLSM_);
+    std::vector<OSc_Device *> detectorDevices;
+    for (std::size_t i = 0; i < OSc_LSM_GetNumberOfDetectorDevices(oscLSM_);
+         ++i) {
+        detectorDevices.push_back(OSc_LSM_GetDetectorDevice(oscLSM_, i));
+    }
 
     OSc_Setting **settings;
     size_t count;
@@ -281,13 +291,15 @@ int OpenScan::GenerateProperties() {
             return errCode;
     }
 
-    if (detectorDevice != scannerDevice && detectorDevice != clockDevice) {
-        err = OSc_Device_GetSettings(detectorDevice, &settings, &count);
-        if (err != OSc_OK)
-            return AdHocErrorCode(err);
-        errCode = GenerateProperties(settings, count, detectorDevice);
-        if (errCode != DEVICE_OK)
-            return errCode;
+    for (OSc_Device *detDev : detectorDevices) {
+        if (detDev != scannerDevice && detDev != clockDevice) {
+            err = OSc_Device_GetSettings(detDev, &settings, &count);
+            if (err != OSc_OK)
+                return AdHocErrorCode(err);
+            errCode = GenerateProperties(settings, count, detDev);
+            if (errCode != DEVICE_OK)
+                return errCode;
+        }
     }
 
     OSc_Setting *acqSettings[3];
@@ -303,6 +315,31 @@ int OpenScan::GenerateProperties() {
     errCode = GenerateProperties(acqSettings, 3, NULL);
     if (errCode != DEVICE_OK)
         return errCode;
+
+    // Properties that are not OpenScan settings:
+    for (std::size_t i = 0; i < detectorDevices.size(); ++i) {
+        OSc_Device *detDev = detectorDevices[i];
+        const char *devName;
+        err = OSc_Device_GetName(detDev, &devName);
+        if (err != OSc_OK)
+            return AdHocErrorCode(err);
+        bool enabled =
+            OSc_AcqTemplate_IsDetectorDeviceEnabled(acqTemplate_, i);
+        const auto propName = PROPERTY_EnableDetector_Prefix +
+                              std::to_string(i) + "-" + std::string(devName);
+        CPropertyActionEx *handler = new CPropertyActionEx(
+            this, &OpenScan::OnEnableDetectorProperty, long(i));
+        errCode = CreateStringProperty(
+            propName.c_str(), enabled ? VALUE_Yes : VALUE_No, false, handler);
+        if (errCode != DEVICE_OK)
+            return errCode;
+        errCode = AddAllowedValue(propName.c_str(), VALUE_Yes);
+        if (errCode != DEVICE_OK)
+            return errCode;
+        errCode = AddAllowedValue(propName.c_str(), VALUE_No);
+        if (errCode != DEVICE_OK)
+            return errCode;
+    }
 
     return DEVICE_OK;
 }
@@ -841,18 +878,40 @@ int OpenScan::OnEnumProperty(MM::PropertyBase *pProp, MM::ActionType eAct,
     return DEVICE_OK;
 }
 
-int OpenScan::AdHocErrorCode(OSc_RichError *richError) {
-    if (richError == OSc_OK) {
-        return DEVICE_OK;
+int OpenScan::OnEnableDetectorProperty(MM::PropertyBase *pProp,
+                                       MM::ActionType eAct, long data) {
+    std::size_t i = data;
+    if (eAct == MM::BeforeGet) {
+        bool enabled =
+            OSc_AcqTemplate_IsDetectorDeviceEnabled(acqTemplate_, i);
+        pProp->Set(enabled ? VALUE_Yes : VALUE_No);
+    } else if (eAct == MM::AfterSet) {
+        std::string valueStr;
+        pProp->Get(valueStr);
+        bool enable = (valueStr == VALUE_Yes);
+        OSc_AcqTemplate_SetDetectorDeviceEnabled(acqTemplate_, i, enable);
     }
+    return DEVICE_OK;
+}
+
+int OpenScan::AdHocErrorCode(OSc_RichError *richError) {
+    if (richError == OSc_OK)
+        return DEVICE_OK;
+
+    std::string buffer;
+    buffer.resize(MM::MaxStrLength);
+    // buffer.data() is const until C++17
+    OSc_Error_FormatRecursive(richError, &buffer[0], MM::MaxStrLength);
+    OSc_Error_Destroy(richError);
+    buffer.resize(std::strlen(buffer.data()));
+    return AdHocErrorCode(buffer);
+}
+
+int OpenScan::AdHocErrorCode(const std::string &message) {
     int ret = nextAdHocErrorCode_++;
     if (nextAdHocErrorCode_ > MAX_ADHOC_ERROR_CODE)
         nextAdHocErrorCode_ = MIN_ADHOC_ERROR_CODE;
-
-    char buffer[MM::MaxStrLength];
-    OSc_Error_FormatRecursive(richError, buffer, sizeof(buffer));
-    SetErrorText(ret, buffer);
-    OSc_Error_Destroy(richError);
+    SetErrorText(ret, message.c_str());
     return ret;
 }
 

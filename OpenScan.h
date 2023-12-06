@@ -122,7 +122,8 @@ class OpenScan : public CCameraBase<OpenScan> {
                           long data);
     int OnEnumProperty(MM::PropertyBase *pProp, MM::ActionType eAct,
                        long data);
-    int AdHocErrorCode(OSc_RichError *richError);
+    int OnEnableDetectorProperty(MM::PropertyBase *pProp, MM::ActionType eAct,
+                                 long data);
 
   public: // Internal functions called from non-class context
     void LogOpenScanMessage(const char *msg, OSc_LogLevel level);
@@ -133,6 +134,8 @@ class OpenScan : public CCameraBase<OpenScan> {
     int GetMagnification(double *magnification);
 
   private:
+    int AdHocErrorCode(OSc_RichError *richError);
+    int AdHocErrorCode(const std::string &message);
     int GenerateProperties();
     int GenerateProperties(OSc_Setting **settings, size_t count,
                            OSc_Device *device);

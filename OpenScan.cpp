@@ -747,13 +747,30 @@ bool OpenScan::SendSequenceImage(OSc_Acquisition *, uint32_t chan,
     char cameraName[MM::MaxStrLength];
     GetChannelName(chan, cameraName);
 
+    // To work like Multi Camera, we must include the camera channel index. The
+    // metadata key for this is (for legacy reasons?) strange: it must include
+    // the device label of the camera.
+    // We also generate tags without the device label.
+    char myLabel[MM::MaxStrLength + 1];
+    GetLabel(myLabel);
+    std::string deviceTaggedChannelIndex(myLabel);
+    deviceTaggedChannelIndex += '-';
+    deviceTaggedChannelIndex += MM::g_Keyword_CameraChannelIndex;
+    std::string deviceTaggedChannelName(myLabel);
+    deviceTaggedChannelName += '-';
+    deviceTaggedChannelName += MM::g_Keyword_CameraChannelName;
+
+    char chanName[MM::MaxStrLength + 1]{};
+    GetChannelName(chan, chanName);
+
     Metadata md;
-    md.put("Camera", cameraName);
-    md.put("CameraName", cameraName);
-    md.put("ChannelName", cameraName);
-    md.put("Channel", cameraName);
-    md.put("CameraChannelIndex", chan);
-    md.put("ChannelIndex", chan);
+    md.put(deviceTaggedChannelIndex.c_str(), chan);
+    md.put(MM::g_Keyword_CameraChannelIndex, chan);
+    if (strlen(chanName) > 0) {
+        md.put(deviceTaggedChannelName.c_str(), chanName);
+        md.put(MM::g_Keyword_CameraChannelName, chanName);
+    }
+
     unsigned width = GetImageWidth();
     unsigned height = GetImageHeight();
     unsigned bytesPerPixel = GetImageBytesPerPixel();

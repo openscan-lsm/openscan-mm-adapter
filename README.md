@@ -3,6 +3,14 @@
 This is a Micro-Manager device adapter that presents an OpenScan-based laser
 scanning microscope to Micro-Manager as a camera.
 
+## Setup
+
+At present, this device adapter searches for OpenScan device modules (`.osdev`)
+in the current working directory only. This works well for the Micro-Manager
+GUI (MMStudio), but you will need to set the working directory explicitly
+(during device loading) if you use OpenScan from another environment, such as
+pymmcore-plus.
+
 ## How to build
 
 This device adapter is currently Windows-only and requires Visual Studio (2019)

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <set>
@@ -63,7 +64,11 @@ MODULE_API void DeleteDevice(MM::Device *device) { delete device; }
 OpenScan::OpenScan()
     : nextAdHocErrorCode_(MIN_ADHOC_ERROR_CODE), oscLSM_(0), acqTemplate_(0),
       sequenceAcquisition_(0), sequenceAcquisitionStopOnOverflow_(false) {
-    const char *paths[] = {".", NULL};
+    const char *paths[] = {
+        ".",
+        std::getenv("MICROMANAGER_PATH"), // Cf. pymmcore-plus
+        NULL,
+    };
     OSc_SetDeviceModuleSearchPaths(paths);
 
     size_t count;

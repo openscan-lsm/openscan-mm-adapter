@@ -32,6 +32,7 @@ mmda = shared_module(
         mmdevice_dep,
     ],
     cpp_args: [
+        '-D_CRT_SECURE_NO_WARNINGS',
         '-DMODULE_EXPORTS',
     ],
 )

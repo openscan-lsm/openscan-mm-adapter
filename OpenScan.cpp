@@ -782,16 +782,7 @@ bool OpenScan::SendSequenceImage(OSc_Acquisition *, uint32_t chan,
     unsigned char *p = static_cast<unsigned char *>(pixels);
     int err = GetCoreCallback()->InsertImage(
         this, p, width, height, bytesPerPixel, md.Serialize().c_str());
-    if (!sequenceAcquisitionStopOnOverflow_ && err == DEVICE_BUFFER_OVERFLOW) {
-        GetCoreCallback()->ClearImageBuffer(this);
-        err = GetCoreCallback()->InsertImage(this, p, width, height,
-                                             bytesPerPixel,
-                                             md.Serialize().c_str(), false);
-        return err == DEVICE_OK;
-    } else if (err != DEVICE_OK) {
-        return false;
-    }
-    return true;
+    return err == DEVICE_OK;
 }
 
 bool OpenScan::IsCapturing() {

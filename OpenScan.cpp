@@ -768,12 +768,12 @@ bool OpenScan::SendSequenceImage(OSc_Acquisition *, uint32_t chan,
     char chanName[MM::MaxStrLength + 1]{};
     GetChannelName(chan, chanName);
 
-    Metadata md;
-    md.put(deviceTaggedChannelIndex.c_str(), chan);
-    md.put(MM::g_Keyword_CameraChannelIndex, chan);
+    MM::CameraImageMetadata md;
+    md.AddTag(deviceTaggedChannelIndex.c_str(), chan);
+    md.AddTag(MM::g_Keyword_CameraChannelIndex, chan);
     if (strlen(chanName) > 0) {
-        md.put(deviceTaggedChannelName.c_str(), chanName);
-        md.put(MM::g_Keyword_CameraChannelName, chanName);
+        md.AddTag(deviceTaggedChannelName.c_str(), chanName);
+        md.AddTag(MM::g_Keyword_CameraChannelName, chanName);
     }
 
     unsigned width = GetImageWidth();
@@ -781,7 +781,7 @@ bool OpenScan::SendSequenceImage(OSc_Acquisition *, uint32_t chan,
     unsigned bytesPerPixel = GetImageBytesPerPixel();
     unsigned char *p = static_cast<unsigned char *>(pixels);
     int err = GetCoreCallback()->InsertImage(
-        this, p, width, height, bytesPerPixel, md.Serialize().c_str());
+        this, p, width, height, bytesPerPixel, md.Serialize());
     return err == DEVICE_OK;
 }
 

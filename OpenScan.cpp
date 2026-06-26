@@ -705,31 +705,38 @@ int OpenScan::StartSequenceAcquisition(long count, double,
 
     OSc_Acquisition *acq;
     OSc_RichError *err = OSc_Acquisition_Create(&acq, acqTemplate_);
+    if (err)
+        // Nothing to destroy
+        return AdHocErrorCode(err);
 
     err = OSc_Acquisition_SetData(acq, this);
     if (err)
-        return AdHocErrorCode(err);
+        goto error;
     err = OSc_Acquisition_SetNumberOfFrames(acq, count);
     if (err)
-        return AdHocErrorCode(err);
+        goto error;
 
     err = OSc_Acquisition_SetFrameCallback(acq, SequenceFrameCallback);
     if (err)
-        return AdHocErrorCode(err);
+        goto error;
 
     err = OSc_Acquisition_Arm(acq);
     if (err)
-        return AdHocErrorCode(err);
+        goto error;
     GetCoreCallback()->PrepareForAcq(this);
 
     err = OSc_Acquisition_Start(acq);
     if (err)
-        return AdHocErrorCode(err);
+        goto error;
 
     sequenceAcquisition_ = acq;
     sequenceAcquisitionStopOnOverflow_ = stopOnOverflow;
 
     return DEVICE_OK;
+
+error:
+    OSc_Acquisition_Destroy(acq);
+    return AdHocErrorCode(err);
 }
 
 int OpenScan::StopSequenceAcquisition() {

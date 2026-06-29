@@ -735,6 +735,8 @@ int OpenScan::StartSequenceAcquisition(long count, double,
     return DEVICE_OK;
 
 error:
+    // NOTE does nothing if errored before arming
+    OSc_Acquisition_Stop(acq);
     OSc_Acquisition_Destroy(acq);
     return AdHocErrorCode(err);
 }
